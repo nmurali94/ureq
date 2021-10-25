@@ -169,14 +169,6 @@ pub fn has_header(headers: &[Header], name: &str) -> bool {
     get_header(headers, name).is_some()
 }
 
-pub fn add_header(headers: &mut Vec<Header>, header: Header) {
-    let name = header.name();
-    if !name.starts_with("x-") && !name.starts_with("X-") {
-        headers.retain(|h| h.name() != name);
-    }
-    headers.push(header);
-}
-
 // https://tools.ietf.org/html/rfc7230#section-3.2
 // Each header field consists of a case-insensitive field name followed
 // by a colon (":"), optional leading whitespace, the field value, and

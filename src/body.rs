@@ -13,6 +13,7 @@ use super::SerdeValue;
 /// The different kinds of bodies to send.
 ///
 /// *Internal API*
+#[allow(dead_code)]
 pub(crate) enum Payload<'a> {
     Empty,
     Text(&'a str, String),

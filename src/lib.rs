@@ -292,7 +292,6 @@ mod cookies;
 
 #[cfg(feature = "json")]
 pub use serde_json::json;
-use url::Url;
 
 #[cfg(test)]
 mod test;
@@ -350,70 +349,9 @@ pub fn agent() -> Agent {
     testserver::test_agent()
 }
 
-/// Make a request with the HTTP verb as a parameter.
-///
-/// This allows making requests with verbs that don't have a dedicated
-/// method.
-///
-/// If you've got an already-parsed [Url], try [request_url][request_url].
-///
-/// ```
-/// # fn main() -> Result<(), ureq::Error> {
-/// # ureq::is_test(true);
-/// let resp: ureq::Response = ureq::request("OPTIONS", "http://example.com/")
-///     .call()?;
-/// # Ok(())
-/// # }
-/// ```
-pub fn request(method: &str, path: &str) -> Request {
-    agent().request(method, path)
-}
-/// Make a request using an already-parsed [Url].
-///
-/// This is useful if you've got a parsed Url from some other source, or if
-/// you want to parse the URL and then modify it before making the request.
-/// If you'd just like to pass a String or a `&str`, try [request][request()].
-///
-/// ```
-/// # fn main() -> Result<(), ureq::Error> {
-/// # ureq::is_test(true);
-/// use url::Url;
-/// let agent = ureq::agent();
-///
-/// let mut url: Url = "http://example.com/some-page".parse().unwrap();
-/// url.set_path("/robots.txt");
-/// let resp: ureq::Response = ureq::request_url("GET", &url)
-///     .call()?;
-/// # Ok(())
-/// # }
-/// ```
-pub fn request_url(method: &str, url: &Url) -> Request {
-    agent().request_url(method, url)
-}
-
 /// Make a GET request.
 pub fn get(path: &str) -> Request {
-    request("GET", path)
-}
-
-/// Make a HEAD request.
-pub fn head(path: &str) -> Request {
-    request("HEAD", path)
-}
-
-/// Make a POST request.
-pub fn post(path: &str) -> Request {
-    request("POST", path)
-}
-
-/// Make a PUT request.
-pub fn put(path: &str) -> Request {
-    request("PUT", path)
-}
-
-/// Make a DELETE request.
-pub fn delete(path: &str) -> Request {
-    request("DELETE", path)
+    agent().get(path)
 }
 
 #[cfg(test)]
