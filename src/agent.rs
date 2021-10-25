@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use crate::pool::ConnectionPool;
 use crate::proxy::Proxy;
 use crate::request::Request;
 use crate::resolve::{ArcResolver, StdResolver};
@@ -10,8 +9,6 @@ use std::time::Duration;
 #[derive(Debug)]
 pub struct AgentBuilder {
     config: AgentConfig,
-    max_idle_connections: usize,
-    max_idle_connections_per_host: usize,
     /// Cookies saved between requests.
     /// Invariant: All cookies must have a nonempty domain and path.
     #[cfg(feature = "cookies")]
@@ -72,8 +69,6 @@ pub struct Agent {
 /// *Internal API*.
 #[derive(Debug)]
 pub(crate) struct AgentState {
-    /// Reused connections between requests.
-    pub(crate) pool: ConnectionPool,
     /// Cookies saved between requests.
     /// Invariant: All cookies must have a nonempty domain and path.
     #[cfg(feature = "cookies")]
@@ -85,12 +80,9 @@ impl Agent {
     /// Make a GET request from this agent.
     pub fn get(&self, path: &str) -> Request {
         let agent = AgentBuilder::new().build();
-        Request::new(agent, "GET".into(), path.into())
+        Request::new(agent, "GET", path)
     }
 }
-
-const DEFAULT_MAX_IDLE_CONNECTIONS: usize = 100;
-const DEFAULT_MAX_IDLE_CONNECTIONS_PER_HOST: usize = 1;
 
 impl AgentBuilder {
     pub fn new() -> Self {
@@ -106,8 +98,6 @@ impl AgentBuilder {
                 #[cfg(feature = "tls")]
                 tls_config: None,
             },
-            max_idle_connections: DEFAULT_MAX_IDLE_CONNECTIONS,
-            max_idle_connections_per_host: DEFAULT_MAX_IDLE_CONNECTIONS_PER_HOST,
             resolver: StdResolver.into(),
             #[cfg(feature = "cookies")]
             cookie_store: None,
@@ -123,10 +113,6 @@ impl AgentBuilder {
         Agent {
             config: Arc::new(self.config),
             state: Arc::new(AgentState {
-                pool: ConnectionPool::new_with_limits(
-                    self.max_idle_connections,
-                    self.max_idle_connections_per_host,
-                ),
                 #[cfg(feature = "cookies")]
                 cookie_tin: CookieTin::new(self.cookie_store.unwrap_or_else(CookieStore::default)),
                 resolver: self.resolver,

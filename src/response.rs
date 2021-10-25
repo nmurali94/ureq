@@ -23,8 +23,7 @@ pub const DEFAULT_CHARACTER_SET: &str = "utf-8";
 const INTO_STRING_LIMIT: usize = 10 * 1_024 * 1_024;
 // Follow the example of curl and limit a single header to 100kB:
 // https://curl.se/libcurl/c/CURLOPT_HEADERFUNCTION.html
-const MAX_HEADER_SIZE: usize = 100 * 1_024;
-const MAX_HEADER_COUNT: usize = 100;
+const MAX_HEADER_SIZE: usize = 100 * 1_024; const MAX_HEADER_COUNT: usize = 100;
 
 /// Response instances are created as results of firing off requests.
 ///
@@ -293,9 +292,9 @@ impl Response {
         let stream = DeadlineStream::new(*stream, deadline);
 
         match (use_chunked, limit_bytes) {
-            (true, _) => Box::new(PoolReturnRead::new(unit, ChunkDecoder::new(stream))),
+            (true, _) => Box::new(PoolReturnRead::new(ChunkDecoder::new(stream))),
             (false, Some(len)) => {
-                Box::new(PoolReturnRead::new(unit, LimitedRead::new(stream, len)))
+                Box::new(PoolReturnRead::new(LimitedRead::new(stream, len)))
             }
             (false, None) => Box::new(stream),
         }

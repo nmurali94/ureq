@@ -2,7 +2,6 @@ use std::{fmt, time};
 
 use url::{ParseError, Url};
 
-use crate::body::Payload;
 use crate::header::{Header};
 use crate::unit::{self, Unit};
 use crate::Response;
@@ -44,7 +43,9 @@ impl fmt::Debug for Request {
 }
 
 impl Request {
-    pub(crate) fn new(agent: Agent, method: String, url: String) -> Request {
+    pub(crate) fn new(agent: Agent, method: &str, url: &str) -> Request {
+        let method = method.into();
+        let url = url.into();
         Request {
             agent,
             method,
@@ -67,11 +68,6 @@ impl Request {
     /// # Ok(())
     /// # }
     /// ```
-    #[inline]
-    pub fn call(self) -> Result<Response> {
-        self.do_call(Payload::Empty)
-    }
-
     fn parse_url(&self) -> Result<Url> {
         Ok(self.url.parse().and_then(|url: Url|
             // No hostname is fine for urls in general, but not for website urls.
@@ -79,11 +75,10 @@ impl Request {
                 Err(ParseError::EmptyHost)
             } else {
                 Ok(url)
-            }
-        )?)
+            })?)
     }
 
-    fn do_call(self, payload: Payload) -> Result<Response> {
+    pub fn call(self) -> Result<Response> {
         for h in &self.headers {
             h.validate()?;
         }
@@ -91,13 +86,11 @@ impl Request {
 
         let deadline = None;
 
-        let reader = payload.into_read();
         let unit = Unit::new(
             &self.agent,
             &self.method,
             &url,
             &self.headers,
-            &reader,
             deadline,
         );
         let response = unit::connect(unit).map_err(|e| e.url(url.clone()))?;

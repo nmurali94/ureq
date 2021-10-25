@@ -9,7 +9,6 @@ use url::Url;
 #[cfg(feature = "cookies")]
 use cookie::Cookie;
 
-use crate::body::{Payload, SizedReader};
 use crate::error::{Error, ErrorKind};
 use crate::header;
 use crate::header::{Header};
@@ -38,7 +37,6 @@ impl Unit {
         method: &str,
         url: &Url,
         headers: &[Header],
-        _body: &SizedReader,
         deadline: Option<time::Instant>,
     ) -> Self {
         //
@@ -124,7 +122,6 @@ pub(crate) fn connect(
         };
         debug!("redirect {} {} -> {}", resp.status(), url, new_url);
         history.push(unit.url.to_string());
-        let body = Payload::Empty.into_read();
         unit.headers.retain(|h| h.name() != "Content-Length");
 
         // recreate the unit to get a new hostname and cookies for the new host.
@@ -133,7 +130,6 @@ pub(crate) fn connect(
             &new_method,
             &new_url,
             &unit.headers,
-            &body,
             unit.deadline,
         );
     };
