@@ -1,6 +1,5 @@
-use crate::stream::Stream;
 use std::fmt;
-use std::io::{self, copy, empty, Cursor, Read, Write};
+use std::io::{empty, Cursor, Read};
 
 #[cfg(feature = "charset")]
 use crate::response::DEFAULT_CHARACTER_SET;
@@ -107,64 +106,6 @@ impl<'a> Payload<'a> {
     }
 }
 
-const CHUNK_MAX_SIZE: usize = 0x4000; // Maximum size of a TLS fragment
-const CHUNK_HEADER_MAX_SIZE: usize = 6; // four hex digits plus "\r\n"
-const CHUNK_FOOTER_SIZE: usize = 2; // "\r\n"
-const CHUNK_MAX_PAYLOAD_SIZE: usize = CHUNK_MAX_SIZE - CHUNK_HEADER_MAX_SIZE - CHUNK_FOOTER_SIZE;
-
-// copy_chunks() improves over chunked_transfer's Encoder + io::copy with the
-// following performance optimizations:
-// 1) It avoid copying memory.
-// 2) chunked_transfer's Encoder issues 4 separate write() per chunk. This is costly
-//    overhead. Instead, we do a single write() per chunk.
-// The measured benefit on a Linux machine is a 50% reduction in CPU usage on a https connection.
-fn copy_chunked<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> io::Result<u64> {
-    // The chunk layout is:
-    // header:header_max_size | payload:max_payload_size | footer:footer_size
-    let mut chunk = Vec::with_capacity(CHUNK_MAX_SIZE);
-    let mut written = 0;
-    loop {
-        // We first read the payload
-        chunk.resize(CHUNK_HEADER_MAX_SIZE, 0);
-        let payload_size = reader
-            .take(CHUNK_MAX_PAYLOAD_SIZE as u64)
-            .read_to_end(&mut chunk)?;
-
-        // Then write the header
-        let header_str = format!("{:x}\r\n", payload_size);
-        let header = header_str.as_bytes();
-        assert!(header.len() <= CHUNK_HEADER_MAX_SIZE);
-        let start_index = CHUNK_HEADER_MAX_SIZE - header.len();
-        (&mut chunk[start_index..]).write_all(header).unwrap();
-
-        // And add the footer
-        chunk.extend_from_slice(b"\r\n");
-
-        // Finally Write the chunk
-        writer.write_all(&chunk[start_index..])?;
-        written += payload_size as u64;
-
-        // On EOF, we wrote a 0 sized chunk. This is what the chunked encoding protocol requires.
-        if payload_size == 0 {
-            return Ok(written);
-        }
-    }
-}
-
-/// Helper to send a body, either as chunked or not.
-pub(crate) fn send_body(
-    mut body: SizedReader,
-    do_chunk: bool,
-    stream: &mut Stream,
-) -> io::Result<()> {
-    if do_chunk {
-        copy_chunked(&mut body.reader, stream)?;
-    } else {
-        copy(&mut body.reader, stream)?;
-    };
-
-    Ok(())
-}
 
 #[cfg(test)]
 mod tests {

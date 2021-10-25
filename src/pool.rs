@@ -65,13 +65,6 @@ fn remove_first_match(list: &mut VecDeque<PoolKey>, key: &PoolKey) -> Option<Poo
     }
 }
 
-fn remove_last_match(list: &mut VecDeque<PoolKey>, key: &PoolKey) -> Option<PoolKey> {
-    match list.iter().rposition(|x| x == key) {
-        Some(i) => list.remove(i),
-        None => None,
-    }
-}
-
 impl ConnectionPool {
     pub(crate) fn new_with_limits(
         max_idle_connections: usize,
@@ -90,37 +83,6 @@ impl ConnectionPool {
     /// Return true if either of the max_* settings is 0, meaning we should do no work.
     fn noop(&self) -> bool {
         self.max_idle_connections == 0 || self.max_idle_connections_per_host == 0
-    }
-
-    /// How the unit::connect tries to get a pooled connection.
-    pub fn try_get_connection(&self, url: &Url, proxy: Option<Proxy>) -> Option<Stream> {
-        let key = PoolKey::new(url, proxy);
-        self.remove(&key)
-    }
-
-    fn remove(&self, key: &PoolKey) -> Option<Stream> {
-        let mut inner = self.inner.lock().unwrap();
-        match inner.recycle.entry(key.clone()) {
-            Entry::Occupied(mut occupied_entry) => {
-                let streams = occupied_entry.get_mut();
-                // Take the newest stream.
-                let stream = streams.pop_back();
-                let stream = stream.expect("invariant failed: empty VecDeque in `recycle`");
-
-                if streams.is_empty() {
-                    occupied_entry.remove();
-                }
-
-                // Remove the newest matching PoolKey from self.lru. That
-                // corresponds to the stream we just removed from `recycle`.
-                remove_last_match(&mut inner.lru, key)
-                    .expect("invariant failed: key in recycle but not in lru");
-
-                debug!("pulling stream from pool: {:?} -> {:?}", key, stream);
-                Some(stream)
-            }
-            Entry::Vacant(_) => None,
-        }
     }
 
     fn add(&self, key: PoolKey, stream: Stream) {

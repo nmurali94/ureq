@@ -228,29 +228,6 @@ impl Error {
         }
     }
 
-    /// Return true iff the error was due to a connection closing.
-    pub(crate) fn connection_closed(&self) -> bool {
-        if self.kind() != ErrorKind::Io {
-            return false;
-        }
-        let other_err = match self {
-            Error::Status(_, _) => return false,
-            Error::Transport(e) => e,
-        };
-        let source = match other_err.source.as_ref() {
-            Some(e) => e,
-            None => return false,
-        };
-        let ioe: &io::Error = match source.downcast_ref() {
-            Some(e) => e,
-            None => return false,
-        };
-        match ioe.kind() {
-            io::ErrorKind::ConnectionAborted => true,
-            io::ErrorKind::ConnectionReset => true,
-            _ => false,
-        }
-    }
 }
 
 /// One of the types of error the can occur when processing a Request.

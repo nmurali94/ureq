@@ -67,6 +67,7 @@ impl Request {
     /// # Ok(())
     /// # }
     /// ```
+    #[inline]
     pub fn call(self) -> Result<Response> {
         self.do_call(Payload::Empty)
     }
@@ -88,13 +89,7 @@ impl Request {
         }
         let url = self.parse_url()?;
 
-        let deadline = match self.timeout.or(self.agent.config.timeout) {
-            None => None,
-            Some(timeout) => {
-                let now = time::Instant::now();
-                Some(now.checked_add(timeout).unwrap())
-            }
-        };
+        let deadline = None;
 
         let reader = payload.into_read();
         let unit = Unit::new(
@@ -105,7 +100,7 @@ impl Request {
             &reader,
             deadline,
         );
-        let response = unit::connect(unit, true, reader).map_err(|e| e.url(url.clone()))?;
+        let response = unit::connect(unit).map_err(|e| e.url(url.clone()))?;
 
         if response.status() >= 400 {
             Err(Error::Status(response.status(), response))
@@ -115,68 +110,6 @@ impl Request {
     }
 }
 
-/// Parsed result of a request url with handy inspection methods.
-#[derive(Debug, Clone)]
-pub struct RequestUrl {
-    url: Url,
-    query_pairs: Vec<(String, String)>,
-}
-
-impl RequestUrl {
-
-    /// Handle the request url as a standard [`url::Url`].
-    pub fn as_url(&self) -> &Url {
-        &self.url
-    }
-
-    /// Get the scheme of the request url, i.e. "https" or "http".
-    pub fn scheme(&self) -> &str {
-        self.url.scheme()
-    }
-
-    /// Host of the request url.
-    pub fn host(&self) -> &str {
-        // this unwrap() is ok, because RequestUrl is tested for empty host
-        // urls in Request::parse_url().
-        self.url.host_str().unwrap()
-    }
-
-    /// Port of the request url, if available. Ports are only available if they
-    /// are present in the original url. Specifically the scheme default ports,
-    /// 443 for `https` and and 80 for `http` are `None` unless explicitly
-    /// set in the url, i.e. `https://my-host.com:443/some/path`.
-    pub fn port(&self) -> Option<u16> {
-        self.url.port()
-    }
-
-    /// Path of the request url.
-    pub fn path(&self) -> &str {
-        self.url.path()
-    }
-
-    /// Returns all query parameters as a vector of key-value pairs.
-    ///
-    /// ```
-    /// # fn main() -> Result<(), ureq::Error> {
-    /// # ureq::is_test(true);
-    /// let req = ureq::get("http://httpbin.org/get")
-    ///     .query("foo", "42")
-    ///     .query("foo", "43");
-    ///
-    /// assert_eq!(req.request_url().unwrap().query_pairs(), vec![
-    ///     ("foo", "42"),
-    ///     ("foo", "43")
-    /// ]);
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn query_pairs(&self) -> Vec<(&str, &str)> {
-        self.query_pairs
-            .iter()
-            .map(|(k, v)| (k.as_str(), v.as_str()))
-            .collect()
-    }
-}
 
 #[cfg(test)]
 mod tests {
