@@ -282,13 +282,9 @@ mod header;
 mod pool;
 mod proxy;
 mod request;
-mod resolve;
 mod response;
 mod stream;
 mod unit;
-
-#[cfg(feature = "cookies")]
-mod cookies;
 
 #[cfg(feature = "json")]
 pub use serde_json::json;
@@ -304,12 +300,8 @@ pub use crate::error::{Error, ErrorKind, OrAnyStatus, Transport};
 pub use crate::header::Header;
 pub use crate::proxy::Proxy;
 pub use crate::request::{Request};
-pub use crate::resolve::Resolver;
 pub use crate::response::Response;
 
-// re-export
-#[cfg(feature = "cookies")]
-pub use cookie::Cookie;
 #[cfg(feature = "json")]
 pub use serde_json::{to_value as serde_to_value, Map as SerdeMap, Value as SerdeValue};
 
@@ -339,14 +331,7 @@ pub fn is_test(is: bool) -> bool {
 
 /// Agents are used to hold configuration and keep state between requests.
 pub fn agent() -> Agent {
-    #[cfg(not(test))]
-    if is_test(false) {
-        testserver::test_agent()
-    } else {
-        AgentBuilder::new().build()
-    }
-    #[cfg(test)]
-    testserver::test_agent()
+    AgentBuilder::new().build()
 }
 
 /// Make a GET request.

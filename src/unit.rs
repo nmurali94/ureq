@@ -6,13 +6,9 @@ use std::time;
 use log::debug;
 use url::Url;
 
-#[cfg(feature = "cookies")]
-use cookie::Cookie;
-
 use crate::error::{Error, ErrorKind};
 use crate::header;
 use crate::header::{Header};
-use crate::resolve::ArcResolver;
 use crate::response::Response;
 use crate::stream::{self, connect_test, Stream};
 use crate::Agent;
@@ -54,10 +50,6 @@ impl Unit {
 
     pub fn is_head(&self) -> bool {
         self.method.eq_ignore_ascii_case("head")
-    }
-
-    pub fn resolver(&self) -> ArcResolver {
-        self.agent.state.resolver.clone()
     }
 
     #[cfg(test)]
@@ -177,39 +169,10 @@ fn connect_inner(
         Ok(resp) => resp,
     };
 
-    // squirrel away cookies
-    #[cfg(feature = "cookies")]
-    save_cookies(unit, &resp);
-
     debug!("response {} to {} {}", resp.status(), method, url);
 
     // release the response
     Ok(resp)
-}
-
-#[cfg(feature = "cookies")]
-fn extract_cookies(agent: &Agent, url: &Url) -> Option<Header> {
-    let header_value = agent
-        .state
-        .cookie_tin
-        .get_request_cookies(url)
-        .iter()
-        // This guards against sending rfc non-compliant cookies, even if the user has
-        // "prepped" their local cookie store with such cookies.
-        .filter(|c| {
-            let is_ok = is_cookie_rfc_compliant(c);
-            if !is_ok {
-                debug!("do not send non compliant cookie: {:?}", c);
-            }
-            is_ok
-        })
-        .map(|c| c.to_string())
-        .collect::<Vec<_>>()
-        .join(";");
-    match header_value.as_str() {
-        "" => None,
-        val => Some(Header::new("Cookie", val)),
-    }
 }
 
 /// Connect the socket, either by using the pool or grab a new one.
@@ -359,182 +322,5 @@ impl fmt::Display for PreludeBuilder {
             String::from_utf8_lossy(&self.prelude[pos..]).trim_end()
         )?;
         Ok(())
-    }
-}
-
-/// Investigate a response for "Set-Cookie" headers.
-#[cfg(feature = "cookies")]
-fn save_cookies(unit: &Unit, resp: &Response) {
-    //
-
-    let headers = resp.all("set-cookie");
-    // Avoid locking if there are no cookie headers
-    if headers.is_empty() {
-        return;
-    }
-    let cookies = headers.into_iter().flat_map(|header_value| {
-        debug!(
-            "received 'set-cookie: {}' from {} {}",
-            header_value, unit.method, unit.url
-        );
-        match Cookie::parse(header_value.to_string()) {
-            Err(_) => None,
-            Ok(c) => {
-                // This guards against accepting rfc non-compliant cookies from a host.
-                if is_cookie_rfc_compliant(&c) {
-                    Some(c)
-                } else {
-                    debug!("ignore incoming non compliant cookie: {:?}", c);
-                    None
-                }
-            }
-        }
-    });
-    unit.agent
-        .state
-        .cookie_tin
-        .store_response_cookies(cookies, &unit.url.clone());
-}
-
-#[cfg(feature = "cookies")]
-fn is_cookie_rfc_compliant(cookie: &Cookie) -> bool {
-    // https://tools.ietf.org/html/rfc6265#page-9
-    // set-cookie-header = "Set-Cookie:" SP set-cookie-string
-    // set-cookie-string = cookie-pair *( ";" SP cookie-av )
-    // cookie-pair       = cookie-name "=" cookie-value
-    // cookie-name       = token
-    // cookie-value      = *cookie-octet / ( DQUOTE *cookie-octet DQUOTE )
-    // cookie-octet      = %x21 / %x23-2B / %x2D-3A / %x3C-5B / %x5D-7E
-    //                       ; US-ASCII characters excluding CTLs,
-    //                       ; whitespace DQUOTE, comma, semicolon,
-    //                       ; and backslash
-    // token             = <token, defined in [RFC2616], Section 2.2>
-
-    // https://tools.ietf.org/html/rfc2616#page-17
-    // CHAR           = <any US-ASCII character (octets 0 - 127)>
-    // ...
-    //        CTL            = <any US-ASCII control character
-    //                         (octets 0 - 31) and DEL (127)>
-    // ...
-    //        token          = 1*<any CHAR except CTLs or separators>
-    //        separators     = "(" | ")" | "<" | ">" | "@"
-    //                       | "," | ";" | ":" | "\" | <">
-    //                       | "/" | "[" | "]" | "?" | "="
-    //                       | "{" | "}" | SP | HT
-
-    fn is_valid_name(b: &u8) -> bool {
-        header::is_tchar(b)
-    }
-
-    fn is_valid_value(b: &u8) -> bool {
-        b.is_ascii()
-            && !b.is_ascii_control()
-            && !b.is_ascii_whitespace()
-            && *b != b'"'
-            && *b != b','
-            && *b != b';'
-            && *b != b'\\'
-    }
-
-    let name = cookie.name().as_bytes();
-
-    let valid_name = name.iter().all(is_valid_name);
-
-    if !valid_name {
-        log::trace!("cookie name is not valid: {:?}", cookie.name());
-        return false;
-    }
-
-    let value = cookie.value().as_bytes();
-
-    let valid_value = value.iter().all(is_valid_value);
-
-    if !valid_value {
-        log::trace!("cookie value is not valid: {:?}", cookie.value());
-        return false;
-    }
-
-    true
-}
-
-#[cfg(test)]
-#[cfg(feature = "cookies")]
-mod tests {
-    use cookie::Cookie;
-    use cookie_store::CookieStore;
-
-    use super::*;
-
-    use crate::Agent;
-    ///////////////////// COOKIE TESTS //////////////////////////////
-
-    #[test]
-    fn match_cookies_returns_one_header() {
-        let agent = Agent::new();
-        let url: Url = "https://crates.io/".parse().unwrap();
-        let cookie1: Cookie = "cookie1=value1; Domain=crates.io; Path=/".parse().unwrap();
-        let cookie2: Cookie = "cookie2=value2; Domain=crates.io; Path=/".parse().unwrap();
-        agent
-            .state
-            .cookie_tin
-            .store_response_cookies(vec![cookie1, cookie2].into_iter(), &url);
-
-        // There's no guarantee to the order in which cookies are defined.
-        // Ensure that they're either in one order or the other.
-        let result = extract_cookies(&agent, &url);
-        let order1 = "cookie1=value1;cookie2=value2";
-        let order2 = "cookie2=value2;cookie1=value1";
-
-        assert!(
-            result == Some(Header::new("Cookie", order1))
-                || result == Some(Header::new("Cookie", order2))
-        );
-    }
-
-    #[test]
-    fn not_send_illegal_cookies() {
-        // This prepares a cookie store with a cookie that isn't legal
-        // according to the relevant rfcs. ureq should not send this.
-        let empty = b"";
-        let mut store = CookieStore::load_json(&empty[..]).unwrap();
-        let url = Url::parse("https://mydomain.com").unwrap();
-        let cookie = Cookie::new("borked///", "illegal<>//");
-        store.insert_raw(&cookie, &url).unwrap();
-
-        let agent = crate::builder().cookie_store(store).build();
-        let cookies = extract_cookies(&agent, &url);
-        assert_eq!(cookies, None);
-    }
-
-    #[test]
-    fn check_cookie_crate_allows_illegal() {
-        // This test is there to see whether the cookie crate enforces
-        // https://tools.ietf.org/html/rfc6265#page-9
-        // https://tools.ietf.org/html/rfc2616#page-17
-        // for cookie name or cookie value.
-        // As long as it doesn't, we do additional filtering in ureq
-        // to not let non-compliant cookies through.
-        let cookie = Cookie::parse("borked///=illegal\\,").unwrap();
-        // these should not be allowed according to the RFCs.
-        assert_eq!(cookie.name(), "borked///");
-        assert_eq!(cookie.value(), "illegal\\,");
-    }
-
-    #[test]
-    fn illegal_cookie_name() {
-        let cookie = Cookie::parse("borked/=value").unwrap();
-        assert!(!is_cookie_rfc_compliant(&cookie));
-    }
-
-    #[test]
-    fn illegal_cookie_value() {
-        let cookie = Cookie::parse("name=borked,").unwrap();
-        assert!(!is_cookie_rfc_compliant(&cookie));
-    }
-
-    #[test]
-    fn legal_cookie_name_value() {
-        let cookie = Cookie::parse("name=value").unwrap();
-        assert!(is_cookie_rfc_compliant(&cookie));
     }
 }

@@ -1,6 +1,6 @@
 use log::debug;
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::net::TcpStream;
 use std::time::Duration;
 use std::time::Instant;
@@ -144,26 +144,6 @@ impl Stream {
         Stream::logged_create(Stream {
             inner: BufReader::new(Inner::Https(t)),
         })
-    }
-
-    pub fn is_poolable(&self) -> bool {
-        match self.inner.get_ref() {
-            Inner::Http(_) => true,
-            #[cfg(feature = "tls")]
-            Inner::Https(_) => true,
-            _ => false,
-        }
-    }
-
-    pub(crate) fn reset(&mut self) -> io::Result<()> {
-        // When we are turning this back into a regular, non-deadline Stream,
-        // remove any timeouts we set.
-        if let Some(socket) = self.socket() {
-            socket.set_read_timeout(None)?;
-            socket.set_write_timeout(None)?;
-        }
-
-        Ok(())
     }
 
     pub(crate) fn socket(&self) -> Option<&TcpStream> {
@@ -354,10 +334,8 @@ pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<Tcp
     };
 
     // TODO: Find a way to apply deadline to DNS lookup.
-    let sock_addrs = unit
-        .resolver()
-        .resolve(&netloc)
-        .map_err(|e| ErrorKind::Dns.new().src(e))?;
+    let sock_addrs: Vec<_> = netloc.to_socket_addrs()
+        .map_err(|e| ErrorKind::Dns.new().src(e))?.collect();
 
     if sock_addrs.is_empty() {
         return Err(ErrorKind::Dns.msg(&format!("No ip address for {}", hostname)));

@@ -2,18 +2,12 @@ use std::sync::Arc;
 
 use crate::proxy::Proxy;
 use crate::request::Request;
-use crate::resolve::{ArcResolver, StdResolver};
 use std::time::Duration;
 
 /// Accumulates options towards building an [Agent].
 #[derive(Debug)]
 pub struct AgentBuilder {
     config: AgentConfig,
-    /// Cookies saved between requests.
-    /// Invariant: All cookies must have a nonempty domain and path.
-    #[cfg(feature = "cookies")]
-    cookie_store: Option<CookieStore>,
-    resolver: ArcResolver,
 }
 
 /// Config as built by AgentBuilder and then static for the lifetime of the Agent.
@@ -30,10 +24,6 @@ pub(crate) struct AgentConfig {
     pub tls_config: Option<TLSClientConfig>,
 }
 
-/// Agents keep state between requests.
-///
-/// By default, no state, such as cookies, is kept between requests.
-/// But by creating an agent as entry point for the request, we
 /// can keep a state.
 ///
 /// ```
@@ -69,11 +59,6 @@ pub struct Agent {
 /// *Internal API*.
 #[derive(Debug)]
 pub(crate) struct AgentState {
-    /// Cookies saved between requests.
-    /// Invariant: All cookies must have a nonempty domain and path.
-    #[cfg(feature = "cookies")]
-    pub(crate) cookie_tin: CookieTin,
-    pub(crate) resolver: ArcResolver,
 }
 
 impl Agent {
@@ -98,9 +83,6 @@ impl AgentBuilder {
                 #[cfg(feature = "tls")]
                 tls_config: None,
             },
-            resolver: StdResolver.into(),
-            #[cfg(feature = "cookies")]
-            cookie_store: None,
         }
     }
 
@@ -113,35 +95,8 @@ impl AgentBuilder {
         Agent {
             config: Arc::new(self.config),
             state: Arc::new(AgentState {
-                #[cfg(feature = "cookies")]
-                cookie_tin: CookieTin::new(self.cookie_store.unwrap_or_else(CookieStore::default)),
-                resolver: self.resolver,
             }),
         }
-    }
-
-    /// Configures a custom resolver to be used by this agent. By default,
-    /// address-resolution is done by std::net::ToSocketAddrs. This allows you
-    /// to override that resolution with your own alternative. Useful for
-    /// testing and special-cases like DNS-based load balancing.
-    ///
-    /// A `Fn(&str) -> io::Result<Vec<SocketAddr>>` is a valid resolver,
-    /// passing a closure is a simple way to override. Note that you might need
-    /// explicit type `&str` on the closure argument for type inference to
-    /// succeed.
-    /// ```
-    /// use std::net::ToSocketAddrs;
-    ///
-    /// let mut agent = ureq::AgentBuilder::new()
-    ///    .resolver(|addr: &str| match addr {
-    ///       "example.com" => Ok(vec![([127,0,0,1], 8096).into()]),
-    ///       addr => addr.to_socket_addrs().map(Iterator::collect),
-    ///    })
-    ///    .build();
-    /// ```
-    pub fn resolver(mut self, resolver: impl crate::Resolver + 'static) -> Self {
-        self.resolver = resolver.into();
-        self
     }
 }
 

@@ -7,7 +7,6 @@ use url::Url;
 
 use crate::error::{Error, ErrorKind::BadStatus};
 use crate::header::{get_all_headers, get_header, Header, HeaderLine};
-use crate::pool::PoolReturnRead;
 use crate::stream::{DeadlineStream, Stream};
 use crate::unit::Unit;
 use crate::{stream, ErrorKind};
@@ -292,9 +291,9 @@ impl Response {
         let stream = DeadlineStream::new(*stream, deadline);
 
         match (use_chunked, limit_bytes) {
-            (true, _) => Box::new(PoolReturnRead::new(ChunkDecoder::new(stream))),
+            (true, _) => Box::new(ChunkDecoder::new(stream)),
             (false, Some(len)) => {
-                Box::new(PoolReturnRead::new(LimitedRead::new(stream, len)))
+                Box::new(LimitedRead::new(stream, len))
             }
             (false, None) => Box::new(stream),
         }
