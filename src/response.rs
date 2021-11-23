@@ -7,9 +7,9 @@ use url::Url;
 
 use crate::error::{Error, ErrorKind::BadStatus};
 use crate::header::{get_all_headers, get_header, Header, HeaderLine};
-use crate::stream::{DeadlineStream, Stream};
+use crate::stream::{Stream};
 use crate::unit::Unit;
-use crate::{stream, ErrorKind};
+use crate::{ErrorKind};
 
 #[cfg(feature = "json")]
 use serde::de::DeserializeOwned;
@@ -287,8 +287,6 @@ impl Response {
                 return Box::new(ErrorReader(e)) as Box<dyn Read + Send>;
             }
         }
-        let deadline = unit.as_ref().and_then(|u| u.deadline);
-        let stream = DeadlineStream::new(*stream, deadline);
 
         match (use_chunked, limit_bytes) {
             (true, _) => Box::new(ChunkDecoder::new(stream)),
@@ -445,8 +443,7 @@ impl Response {
     pub(crate) fn do_from_stream(stream: Stream, unit: Option<Unit>) -> Result<Response, Error> {
         //
         // HTTP/1.1 200 OK\r\n
-        let mut stream =
-            stream::DeadlineStream::new(stream, unit.as_ref().and_then(|u| u.deadline));
+        let mut stream = stream;
 
         // The status line we can ignore non-utf8 chars and parse as_str_lossy().
         let status_line = read_next_line(&mut stream, "the status line")?.into_string_lossy();

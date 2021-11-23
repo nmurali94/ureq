@@ -12,8 +12,6 @@ use chunked_transfer::Decoder as ChunkDecoder;
 use rustls::ClientConnection;
 #[cfg(feature = "tls")]
 use rustls::StreamOwned;
-#[cfg(feature = "socks-proxy")]
-use socks::{TargetAddr, ToTargetAddr};
 
 use crate::proxy::Proxy;
 use crate::{error::Error, proxy::Proto};
@@ -38,63 +36,6 @@ enum Inner {
 // TcpStream to ensure read() doesn't block beyond the deadline.
 // When the From trait is used to turn a DeadlineStream back into a
 // Stream (by PoolReturningRead), the timeouts are removed.
-pub(crate) struct DeadlineStream {
-    stream: Stream,
-    deadline: Option<Instant>,
-}
-
-impl DeadlineStream {
-    pub(crate) fn new(stream: Stream, deadline: Option<Instant>) -> Self {
-        DeadlineStream { stream, deadline }
-    }
-}
-
-impl From<DeadlineStream> for Stream {
-    fn from(deadline_stream: DeadlineStream) -> Stream {
-        deadline_stream.stream
-    }
-}
-
-impl BufRead for DeadlineStream {
-    fn fill_buf(&mut self) -> io::Result<&[u8]> {
-        if let Some(deadline) = self.deadline {
-            let timeout = time_until_deadline(deadline)?;
-            if let Some(socket) = self.stream.socket() {
-                socket.set_read_timeout(Some(timeout))?;
-                socket.set_write_timeout(Some(timeout))?;
-            }
-        }
-        self.stream.fill_buf().map_err(|e| {
-            // On unix-y platforms set_read_timeout and set_write_timeout
-            // causes ErrorKind::WouldBlock instead of ErrorKind::TimedOut.
-            // Since the socket most definitely not set_nonblocking(true),
-            // we can safely normalize WouldBlock to TimedOut
-            if e.kind() == io::ErrorKind::WouldBlock {
-                return io_err_timeout("timed out reading response".to_string());
-            }
-            e
-        })
-    }
-
-    fn consume(&mut self, amt: usize) {
-        self.stream.consume(amt)
-    }
-}
-
-impl Read for DeadlineStream {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        // All reads on a DeadlineStream use the BufRead impl. This ensures
-        // that we have a chance to set the correct timeout before each recv
-        // syscall.
-        // Copied from the BufReader implementation of `read()`.
-        let nread = {
-            let mut rem = self.fill_buf()?;
-            rem.read(buf)?
-        };
-        self.consume(nread);
-        Ok(nread)
-    }
-}
 
 // If the deadline is in the future, return the remaining time until
 // then. Otherwise return a TimedOut error.
