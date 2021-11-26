@@ -17,7 +17,6 @@ pub(crate) struct AgentConfig {
     pub timeout_connect: Option<Duration>,
     pub timeout_read: Option<Duration>,
     pub timeout_write: Option<Duration>,
-    pub timeout: Option<Duration>,
     pub redirects: u32,
     pub user_agent: String,
     #[cfg(feature = "tls")]
@@ -77,7 +76,6 @@ impl AgentBuilder {
                 timeout_connect: Some(Duration::from_secs(30)),
                 timeout_read: None,
                 timeout_write: None,
-                timeout: None,
                 redirects: 5,
                 user_agent: format!("ureq/{}", env!("CARGO_PKG_VERSION")),
                 #[cfg(feature = "tls")]

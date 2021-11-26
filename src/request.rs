@@ -1,4 +1,4 @@
-use std::{fmt, time};
+use std::{fmt};
 
 use url::{ParseError, Url};
 
@@ -29,7 +29,6 @@ pub struct Request {
     method: String,
     url: String,
     headers: Vec<Header>,
-    timeout: Option<time::Duration>,
 }
 
 impl fmt::Debug for Request {
@@ -51,7 +50,6 @@ impl Request {
             method,
             url,
             headers: vec![],
-            timeout: None,
         }
     }
 

@@ -50,6 +50,16 @@ const MAX_HEADER_SIZE: usize = 100 * 1_024; const MAX_HEADER_COUNT: usize = 100;
 /// # Ok(())
 /// # }
 /// ```
+pub struct LeanResponse {
+    url: Option<Url>,
+    index: ResponseStatusIndex,
+    status: u16,
+    headers: Vec<u8>,
+    // Boxed to avoid taking up too much size.
+    unit: Option<Box<Unit>>,
+    // Boxed to avoid taking up too much size.
+    stream: Box<Stream>,
+}
 pub struct Response {
     url: Option<Url>,
     status_line: String,
@@ -82,7 +92,7 @@ impl fmt::Debug for Response {
             "Response[status: {}, status_text: {}",
             self.status(),
             self.status_text(),
-        )?;
+            )?;
         if let Some(url) = &self.url {
             write!(f, ", url: {}", url)?;
         }
@@ -192,7 +202,7 @@ impl Response {
                     .map(|index| &header[0..index])
                     .unwrap_or(header)
             })
-            .unwrap_or(DEFAULT_CONTENT_TYPE)
+        .unwrap_or(DEFAULT_CONTENT_TYPE)
     }
 
     /// The character set part of the "Content-Type".
@@ -341,9 +351,9 @@ impl Response {
             .read_to_end(&mut buf)?;
         if buf.len() > INTO_STRING_LIMIT {
             return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "response too big for into_string",
-            ));
+                    io::ErrorKind::Other,
+                    "response too big for into_string",
+                    ));
         }
 
         #[cfg(feature = "charset")]
@@ -423,7 +433,7 @@ impl Response {
             io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("Failed to read JSON: {}", e),
-            )
+                )
         })
     }
 
@@ -462,8 +472,8 @@ impl Response {
 
         if headers.len() > MAX_HEADER_COUNT {
             return Err(ErrorKind::BadHeader.msg(
-                format!("more than {} header fields in response", MAX_HEADER_COUNT).as_str(),
-            ));
+                    format!("more than {} header fields in response", MAX_HEADER_COUNT).as_str(),
+                    ));
         }
 
         Ok(Response {
@@ -501,6 +511,43 @@ impl Response {
         self.history = previous.history;
         self.history.push(previous_url);
     }
+}
+fn parse_status_line_from_header(line: &[u8]) -> Result<(ResponseStatusIndex, u16), Error> {
+    memchr::memmem::find(b"\r\n", line)
+        .map(|i| {
+            let s = &line[..i];
+            if i < 13 || s[13] != b' ' || s[9] != b' ' {
+                return Err(BadStatus.msg("Status line isn't formatted correctly"));
+            }
+            if s.iter().any(|c| !c.is_ascii()) {
+                return Err(BadStatus.msg("Status line not ASCII"));
+            }
+            else if b"HTTP/ " != &s[..5] || !s[5].is_ascii_digit() || !s[7].is_ascii_digit()  {
+                return Err(BadStatus.msg("HTTP version not formatted correctly"));
+            }
+            else if s[10..13].iter().any(|c| !c.is_ascii_digit()) {
+                return Err(BadStatus.msg("HTTP status code must be a 3 digit number"));
+            }
+            else {
+
+                let n = std::str::from_utf8(&s[10..13]);
+                if n.is_err() {
+                    return Err(BadStatus.msg("HTTP status code must be a 3 digit number"));
+                }
+                let n = n.unwrap();
+                let status: u16 = n.parse().map_err(|_| BadStatus.new())?;
+
+                Ok((
+                        ResponseStatusIndex {
+                            http_version: 10,
+                            response_code: 14,
+                        },
+                        status,
+                        ))
+                
+            }
+        })
+    .unwrap_or_else(|| Err(BadStatus.msg("Status line isn't formatted correctly")))
 }
 
 /// parse a line like: HTTP/1.1 200 OK\r\n
@@ -546,12 +593,12 @@ fn parse_status_line(line: &str) -> Result<(ResponseStatusIndex, u16), Error> {
     let status: u16 = status_str.parse().map_err(|_| BadStatus.new())?;
 
     Ok((
-        ResponseStatusIndex {
-            http_version: http_version.len(),
-            response_code: http_version.len() + status_str.len(),
-        },
-        status,
-    ))
+            ResponseStatusIndex {
+                http_version: http_version.len(),
+                response_code: http_version.len() + status_str.len(),
+            },
+            status,
+            ))
 }
 
 impl FromStr for Response {
@@ -576,6 +623,40 @@ impl FromStr for Response {
     }
 }
 
+fn read_status_and_headers(reader: &mut impl BufRead) -> io::Result<Vec<u8>> {
+    let mut buf = Vec::new();
+
+    let mut limited_reader = reader.take(((MAX_HEADER_SIZE + 1) * MAX_HEADER_COUNT) as u64);
+
+    loop {
+        let (done, used) = {
+            let available = match limited_reader.fill_buf() {
+                Ok(n) => n,
+                Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e),
+            };
+            match memchr::memmem::find(b"\r\n\r\n", available) {
+                Some(i) => {
+                    buf.extend_from_slice(&available[..=i]);
+                    (true, i + 1)
+                }
+                None => {
+                    buf.extend_from_slice(available);
+                    (false, available.len())
+                }
+            }
+        };
+
+
+        limited_reader.consume(used);
+        if done || used == 0 {
+            break;
+        }
+    }
+
+    Ok(buf.into())
+}
+
 fn read_next_line(reader: &mut impl BufRead, context: &str) -> io::Result<HeaderLine> {
     let mut buf = Vec::new();
     let result = reader
@@ -584,33 +665,33 @@ fn read_next_line(reader: &mut impl BufRead, context: &str) -> io::Result<Header
 
     match result {
         Ok(0) => Err(io::Error::new(
-            io::ErrorKind::ConnectionAborted,
-            "Unexpected EOF",
-        )),
-        Ok(n) if n > MAX_HEADER_SIZE => Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("header field longer than {} bytes", MAX_HEADER_SIZE),
-        )),
-        Ok(_) => Ok(()),
-        Err(e) => {
-            // Provide context to errors encountered while reading the line.
-            let reason = format!("Error encountered in {}", context);
+                io::ErrorKind::ConnectionAborted,
+                "Unexpected EOF",
+                )),
+                Ok(n) if n > MAX_HEADER_SIZE => Err(io::Error::new(
+                        io::ErrorKind::Other,
+                        format!("header field longer than {} bytes", MAX_HEADER_SIZE),
+                        )),
+                Ok(_) => Ok(()),
+                Err(e) => {
+                    // Provide context to errors encountered while reading the line.
+                    let reason = format!("Error encountered in {}", context);
 
-            let kind = e.kind();
+                    let kind = e.kind();
 
-            // Use an intermediate wrapper type which carries the error message
-            // as well as a .source() reference to the original error.
-            let wrapper = Error::new(ErrorKind::Io, Some(reason)).src(e);
+                    // Use an intermediate wrapper type which carries the error message
+                    // as well as a .source() reference to the original error.
+                    let wrapper = Error::new(ErrorKind::Io, Some(reason)).src(e);
 
-            Err(io::Error::new(kind, wrapper))
-        }
+                    Err(io::Error::new(kind, wrapper))
+                }
     }?;
 
     if !buf.ends_with(b"\n") {
         return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("Header field didn't end with \\n: {:?}", buf),
-        ));
+                io::ErrorKind::InvalidInput,
+                format!("Header field didn't end with \\n: {:?}", buf),
+                ));
     }
 
     buf.pop();
@@ -656,9 +737,9 @@ impl<R: Read> Read for LimitedRead<R> {
             // received, the recipient MUST consider the message to be
             // incomplete and close the connection.
             Ok(0) => Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "response body closed before all bytes were read",
-            )),
+                    io::ErrorKind::UnexpectedEof,
+                    "response body closed before all bytes were read",
+                    )),
             Ok(amount) => {
                 self.position += amount;
                 Ok(amount)
@@ -670,7 +751,7 @@ impl<R: Read> Read for LimitedRead<R> {
 
 impl<R: Read> From<LimitedRead<R>> for Stream
 where
-    Stream: From<R>,
+Stream: From<R>,
 {
     fn from(limited_read: LimitedRead<R>) -> Stream {
         limited_read.reader.into()
@@ -691,7 +772,7 @@ pub(crate) fn charset_from_content_type(header: Option<&str>) -> &str {
                     .map(|equal| (&header[semi + equal + 2..]).trim())
             })
         })
-        .unwrap_or(DEFAULT_CHARACTER_SET)
+    .unwrap_or(DEFAULT_CHARACTER_SET)
 }
 
 // ErrorReader returns an error for every read.
@@ -800,9 +881,9 @@ mod tests {
                  Content-Length: {}\r\n
                  \r\n
                  {}",
-            LEN,
-            "A".repeat(LEN),
-        );
+                 LEN,
+                 "A".repeat(LEN),
+                 );
         let result = s.parse::<Response>().unwrap();
         let err = result
             .into_string()
@@ -868,7 +949,7 @@ mod tests {
         assert_eq!(
             err.to_string(),
             format!("header field longer than {} bytes", MAX_HEADER_SIZE)
-        );
+            );
     }
 
     #[test]
@@ -879,8 +960,8 @@ mod tests {
                  {}
                  \r\n
                  hi",
-            "Header: value\r\n".repeat(LEN),
-        );
+                 "Header: value\r\n".repeat(LEN),
+                 );
         let err = s
             .parse::<Response>()
             .expect_err("did not error on too many headers");
@@ -890,8 +971,8 @@ mod tests {
             format!(
                 "Bad Header: more than {} header fields in response",
                 MAX_HEADER_COUNT
-            )
-        );
+                )
+            );
     }
 
     #[test]
@@ -914,7 +995,7 @@ mod tests {
             x-geo-header: gött mos!\r\n\
             \r\n\
             OK",
-        );
+            );
         let v = cow.to_vec();
         let s = Stream::from_vec(v);
         let resp = Response::do_from_stream(s.into(), None).unwrap();
