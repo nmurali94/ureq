@@ -261,6 +261,8 @@ pub(crate) fn connect_https(unit: &Unit, hostname: &str) -> Result<Stream, Error
     Ok(Stream::from_tls_stream(stream))
 }
 
+type SocketVec = Vec<SocketAddr>;
+
 pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<TcpStream, Error> {
     let connect_deadline: Option<Instant> =
         if let Some(timeout_connect) = unit.agent.config.timeout_connect {
@@ -275,7 +277,7 @@ pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<Tcp
     };
 
     // TODO: Find a way to apply deadline to DNS lookup.
-    let sock_addrs: Vec<_> = netloc.to_socket_addrs()
+    let sock_addrs: SocketVec = netloc.to_socket_addrs()
         .map_err(|e| ErrorKind::Dns.new().src(e))?.collect();
 
     if sock_addrs.is_empty() {

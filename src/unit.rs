@@ -21,9 +21,11 @@ pub(crate) struct Unit {
     pub agent: Agent,
     pub method: String,
     pub url: Url,
-    headers: Vec<Header>,
+    headers: HeaderVec,
     pub deadline: Option<time::Instant>,
 }
+type HistoryVec = tinyvec::TinyVec<[String; 8]>;
+type HeaderVec = tinyvec::TinyVec<[Header; 16]>;
 
 impl Unit {
     //
@@ -37,7 +39,7 @@ impl Unit {
     ) -> Self {
         //
 
-        let headers = headers.to_vec();
+        let headers = headers.into();
 
         Unit {
             agent: agent.clone(),
@@ -70,11 +72,11 @@ impl Unit {
 pub(crate) fn connect(
     mut unit: Unit,
 ) -> Result<Response, Error> {
-    let mut history = vec![];
+    let mut history = HistoryVec::new();
     let mut resp = loop {
         let resp = connect_inner(&unit, &history)?;
 
-        let (version, status, text) = resp.get_status_line()?;
+        let (_version, status, _text) = resp.get_status_line()?;
         // handle redirects
         if !(300..399).contains(&status) || unit.agent.config.redirects == 0 {
             break resp;
@@ -140,8 +142,6 @@ fn connect_inner(
         .host_str()
         // This unwrap is ok because Request::parse_url() ensure there is always a host present.
         .unwrap();
-    let url = &unit.url;
-    let method = &unit.method;
     // open socket
     let mut stream = connect_socket(unit, host)?;
 

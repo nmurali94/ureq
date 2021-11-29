@@ -3,9 +3,15 @@ use std::fmt;
 use std::str::{from_utf8, FromStr};
 use std::convert::TryFrom;
 
+const MAX_HEADER_SIZE: usize = 1_024;
+const MAX_HEADER_COUNT: usize = 128;
+
+type HeaderVec = tinyvec::TinyVec<[HeaderIndex; MAX_HEADER_COUNT]>;
+type HeaderLineVec = tinyvec::TinyVec<[u8; MAX_HEADER_SIZE]>;
+
 pub struct Headers {
-    indices: Vec<HeaderIndex>,
-    data: Vec<u8>
+    indices: HeaderVec,
+    data: Vec<u8>,
 }
 
 struct HeaderIndex {
@@ -14,11 +20,21 @@ struct HeaderIndex {
     end: usize,
 }
 
+impl Default for HeaderIndex {
+    fn default() -> Self {
+        HeaderIndex {
+            start: 0,
+            colon: 0,
+            end: 0,
+        }
+    }
+}
+
 impl TryFrom<Vec<u8>> for Headers {
     type Error = Error;
     fn try_from(v: Vec<u8>) -> Result<Self, Error> {
         let mut start = 0;
-        let mut hs = Vec::new();
+        let mut hs = HeaderVec::new();
         for n in memchr::memchr_iter(b'\n', &v) {
             let end = if v[n-1] == b'\r' {
                 n-1
@@ -28,8 +44,11 @@ impl TryFrom<Vec<u8>> for Headers {
                 return Err(ErrorKind::BadHeader.msg("HTTP header must be a key-value separated by a colon"));
 
             }
-            let colon = start + c.unwrap();
+            if end - start > MAX_HEADER_SIZE {
+                return Err(ErrorKind::BadHeader.msg("HTTP header size exceeds the max supported"));
 
+            }
+            let colon = start + c.unwrap();
 
             let h = HeaderIndex {
                 start,
@@ -64,30 +83,15 @@ impl Headers {
 /// Since a status line or header can contain non-utf8 characters the
 /// backing store is a `Vec<u8>`
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct HeaderLine(Vec<u8>);
+pub(crate) struct HeaderLine(HeaderLineVec);
 
-impl From<String> for HeaderLine {
-    fn from(s: String) -> Self {
-        HeaderLine(s.into_bytes())
-    }
-}
-
-impl From<Vec<u8>> for HeaderLine {
-    fn from(b: Vec<u8>) -> Self {
+impl From<HeaderLineVec> for HeaderLine {
+    fn from(b: HeaderLineVec) -> Self {
         HeaderLine(b)
     }
 }
 
 impl HeaderLine {
-    pub fn into_string_lossy(self) -> String {
-        // Try to avoid an extra allcation.
-        String::from_utf8(self.0)
-            .unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).to_string())
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
 
     fn as_bytes(&self) -> &[u8] {
         &self.0
@@ -134,6 +138,12 @@ pub struct Header {
     index: usize,
 }
 
+impl Default for Header {
+    fn default() -> Self {
+        Header { line: HeaderLine(HeaderLineVec::new()), index: 0 }
+    }
+}
+
 impl fmt::Debug for Header {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.line)
@@ -142,8 +152,14 @@ impl fmt::Debug for Header {
 
 impl Header {
     pub fn new(name: &str, value: &str) -> Self {
-        let line = format!("{}: {}", name, value).into();
+        let mut line = HeaderLineVec::new();
+        line.extend_from_slice(name.as_bytes());
+        line.extend_from_slice(b": ");
+        line.extend_from_slice(value.as_bytes());
         let index = name.len();
+
+        let line = HeaderLine(line);
+
         Header { line, index }
     }
 
@@ -216,14 +232,6 @@ pub fn get_header<'a, 'b>(headers: &'b [Header], name: &'a str) -> Option<&'b st
         .and_then(|h| h.value())
 }
 
-pub fn get_all_headers<'a, 'b>(headers: &'b [Header], name: &'a str) -> Vec<&'b str> {
-    headers
-        .iter()
-        .filter(|h| h.is_name(name))
-        .filter_map(|h| h.value())
-        .collect()
-}
-
 pub fn has_header(headers: &[Header], name: &str) -> bool {
     get_header(headers, name).is_some()
 }
@@ -281,8 +289,10 @@ impl FromStr for Header {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         //
-        let line: HeaderLine = s.to_string().into();
+        let mut line = HeaderLineVec::new();
+        line.extend_from_slice(s.as_bytes());
 
+        let line = HeaderLine(line);
         let header = line.into_header()?;
 
         header.validate()?;

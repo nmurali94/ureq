@@ -6,7 +6,7 @@ use chunked_transfer::Decoder as ChunkDecoder;
 use url::Url;
 
 use crate::error::{Error, ErrorKind::BadStatus};
-use crate::header::{Headers, HeaderLine};
+use crate::header::{Headers};
 use crate::stream::{Stream};
 use crate::unit::Unit;
 use crate::{ErrorKind};
@@ -52,20 +52,24 @@ const MAX_HEADER_SIZE: usize = 100 * 1_024; const MAX_HEADER_COUNT: usize = 100;
 /// # Ok(())
 /// # }
 /// ```
+
+type StatusVec = tinyvec::TinyVec<[u8; 32]>;
+type HistoryVec = tinyvec::TinyVec<[String; 8]>;
+
 pub struct Response {
     url: Option<Url>,
-    status_line: Vec<u8>,
+    status_line: StatusVec,
     headers: Headers,
     // Boxed to avoid taking up too much size.
     unit: Option<Box<Unit>>,
     // Boxed to avoid taking up too much size.
     stream: Box<Stream>,
-    pub(crate) history: Vec<String>,
+    pub(crate) history: HistoryVec,
 }
 
 impl fmt::Debug for Response {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let (version, status, text) = self.get_status_line().unwrap();
+        let (_version, status, text) = self.get_status_line().unwrap();
         write!(
             f,
             "Response[status: {}, status_text: {}",
@@ -203,7 +207,7 @@ impl Response {
     /// ```
     pub fn into_reader(self) -> impl Read + Send {
         //
-        let (http_version, status, status_text) = self.get_status_line().unwrap();
+        let (http_version, status, _status_text) = self.get_status_line().unwrap();
         let is_http10 = http_version.eq_ignore_ascii_case("HTTP/1.0");
         let is_close = self
             .header("connection")
@@ -408,7 +412,7 @@ impl Response {
             return Err(ErrorKind::BadStatus.msg(""));
         }
         let i = i.unwrap();
-        let status_line: Vec<_> = headers.drain(..i+1).collect();
+        let status_line: StatusVec = headers.drain(..i+1).collect();
         //println!("Status: {}", std::str::from_utf8(&status_line).unwrap());
 
         //println!("Headers: {}", std::str::from_utf8(&headers).unwrap());
@@ -420,7 +424,7 @@ impl Response {
             headers,
             unit: unit.map(Box::new),
             stream: Box::new(stream.into()),
-            history: vec![],
+            history: HistoryVec::new(),
         })
     }
 
@@ -528,51 +532,6 @@ fn read_status_and_headers(reader: &mut impl BufRead) -> io::Result<Vec<u8>> {
         if done || used == 0 {
             break;
         }
-    }
-
-    Ok(buf.into())
-}
-
-fn read_next_line(reader: &mut impl BufRead, context: &str) -> io::Result<HeaderLine> {
-    let mut buf = Vec::new();
-    let result = reader
-        .take((MAX_HEADER_SIZE + 1) as u64)
-        .read_until(b'\n', &mut buf);
-
-    match result {
-        Ok(0) => Err(io::Error::new(
-                io::ErrorKind::ConnectionAborted,
-                "Unexpected EOF",
-                )),
-                Ok(n) if n > MAX_HEADER_SIZE => Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("header field longer than {} bytes", MAX_HEADER_SIZE),
-                        )),
-                Ok(_) => Ok(()),
-                Err(e) => {
-                    // Provide context to errors encountered while reading the line.
-                    let reason = format!("Error encountered in {}", context);
-
-                    let kind = e.kind();
-
-                    // Use an intermediate wrapper type which carries the error message
-                    // as well as a .source() reference to the original error.
-                    let wrapper = Error::new(ErrorKind::Io, Some(reason)).src(e);
-
-                    Err(io::Error::new(kind, wrapper))
-                }
-    }?;
-
-    if !buf.ends_with(b"\n") {
-        return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("Header field didn't end with \\n: {:?}", buf),
-                ));
-    }
-
-    buf.pop();
-    if buf.ends_with(b"\r") {
-        buf.pop();
     }
 
     Ok(buf.into())

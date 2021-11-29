@@ -93,7 +93,7 @@ impl Request {
         );
         let response = unit::connect(unit).map_err(|e| e.url(url.clone()))?;
 
-        let (version, status, text) = response.get_status_line()?;
+        let (_version, status, _text) = response.get_status_line()?;
 
         if status >= 400 {
             Err(Error::Status(status, response))

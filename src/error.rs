@@ -275,7 +275,7 @@ impl ErrorKind {
 
 impl From<Response> for Error {
     fn from(resp: Response) -> Error {
-        let (v, s, t) = resp.get_status_line().unwrap();
+        let (_v, s, _t) = resp.get_status_line().unwrap();
         Error::Status(s, resp)
     }
 }
