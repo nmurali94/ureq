@@ -74,8 +74,9 @@ pub(crate) fn connect(
     let mut resp = loop {
         let resp = connect_inner(&unit, &history)?;
 
+        let (version, status, text) = resp.get_status_line()?;
         // handle redirects
-        if !(300..399).contains(&resp.status()) || unit.agent.config.redirects == 0 {
+        if !(300..399).contains(&status) || unit.agent.config.redirects == 0 {
             break resp;
         }
         if history.len() + 1 >= unit.agent.config.redirects as usize {
@@ -97,7 +98,7 @@ pub(crate) fn connect(
         })?;
 
         // perform the redirect differently depending on 3xx code.
-        let new_method = match resp.status() {
+        let new_method = match status {
             // this is to follow how curl does it. POST, PUT etc change
             // to GET on a redirect.
             301 | 302 | 303 => match &method[..] {
@@ -112,7 +113,7 @@ pub(crate) fn connect(
             }
             _ => break resp,
         };
-        debug!("redirect {} {} -> {}", resp.status(), url, new_url);
+        debug!("redirect {} {} -> {}", status, url, new_url);
         history.push(unit.url.to_string());
         unit.headers.retain(|h| h.name() != "Content-Length");
 
@@ -168,8 +169,6 @@ fn connect_inner(
         Err(e) => return Err(e),
         Ok(resp) => resp,
     };
-
-    debug!("response {} to {} {}", resp.status(), method, url);
 
     // release the response
     Ok(resp)

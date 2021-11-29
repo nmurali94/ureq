@@ -1,6 +1,65 @@
 use crate::error::{Error, ErrorKind};
 use std::fmt;
 use std::str::{from_utf8, FromStr};
+use std::convert::TryFrom;
+
+pub struct Headers {
+    indices: Vec<HeaderIndex>,
+    data: Vec<u8>
+}
+
+struct HeaderIndex {
+    start: usize,
+    colon: usize,
+    end: usize,
+}
+
+impl TryFrom<Vec<u8>> for Headers {
+    type Error = Error;
+    fn try_from(v: Vec<u8>) -> Result<Self, Error> {
+        let mut start = 0;
+        let mut hs = Vec::new();
+        for n in memchr::memchr_iter(b'\n', &v) {
+            let end = if v[n-1] == b'\r' {
+                n-1
+            } else { n };
+            let c = memchr::memchr(b':', &v[start..end]);
+            if c.is_none() {
+                return Err(ErrorKind::BadHeader.msg("HTTP header must be a key-value separated by a colon"));
+
+            }
+            let colon = start + c.unwrap();
+
+
+            let h = HeaderIndex {
+                start,
+                colon,
+                end,
+            };
+
+            start = n + 1;
+            hs.push(h);
+        }
+        Ok(Headers {
+            indices: hs,
+            data: v
+        })
+    }
+}
+
+impl Headers {
+    pub fn header(&self, name: &str) -> Option<&[u8]> {
+        for idx in &self.indices {
+            let h = &self.data[idx.start..idx.colon];
+            let h_str = std::str::from_utf8(h).unwrap();
+            if h_str.to_lowercase() == name.to_lowercase() {
+                let v = &self.data[idx.colon+1..idx.end];
+                return Some(v);
+            }
+        }
+        None
+    }
+}
 
 /// Since a status line or header can contain non-utf8 characters the
 /// backing store is a `Vec<u8>`

@@ -6,10 +6,12 @@ use chunked_transfer::Decoder as ChunkDecoder;
 use url::Url;
 
 use crate::error::{Error, ErrorKind::BadStatus};
-use crate::header::{get_all_headers, get_header, Header, HeaderLine};
+use crate::header::{Headers, HeaderLine};
 use crate::stream::{Stream};
 use crate::unit::Unit;
 use crate::{ErrorKind};
+
+use std::convert::TryFrom;
 
 #[cfg(feature = "json")]
 use serde::de::DeserializeOwned;
@@ -50,48 +52,25 @@ const MAX_HEADER_SIZE: usize = 100 * 1_024; const MAX_HEADER_COUNT: usize = 100;
 /// # Ok(())
 /// # }
 /// ```
-pub struct LeanResponse {
-    url: Option<Url>,
-    index: ResponseStatusIndex,
-    status: u16,
-    headers: Vec<u8>,
-    // Boxed to avoid taking up too much size.
-    unit: Option<Box<Unit>>,
-    // Boxed to avoid taking up too much size.
-    stream: Box<Stream>,
-}
 pub struct Response {
     url: Option<Url>,
-    status_line: String,
-    index: ResponseStatusIndex,
-    status: u16,
-    headers: Vec<Header>,
+    status_line: Vec<u8>,
+    headers: Headers,
     // Boxed to avoid taking up too much size.
     unit: Option<Box<Unit>>,
     // Boxed to avoid taking up too much size.
     stream: Box<Stream>,
-    /// The redirect history of this response, if any. The history starts with
-    /// the first response received and ends with the response immediately
-    /// previous to this one.
-    ///
-    /// If this response was not redirected, the history is empty.
     pub(crate) history: Vec<String>,
-}
-
-/// index into status_line where we split: HTTP/1.1 200 OK
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-struct ResponseStatusIndex {
-    http_version: usize,
-    response_code: usize,
 }
 
 impl fmt::Debug for Response {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let (version, status, text) = self.get_status_line().unwrap();
         write!(
             f,
             "Response[status: {}, status_text: {}",
-            self.status(),
-            self.status_text(),
+            status,
+            text,
             )?;
         if let Some(url) = &self.url {
             write!(f, ", url: {}", url)?;
@@ -127,22 +106,8 @@ impl Response {
         self.url.as_ref().map(|s| &s[..]).unwrap_or("")
     }
 
-    /// The http version: `HTTP/1.1`
-    pub fn http_version(&self) -> &str {
-        &self.status_line.as_str()[0..self.index.http_version]
-    }
-
-    /// The status as a u16: `200`
-    pub fn status(&self) -> u16 {
-        self.status
-    }
-
-    /// The status text: `OK`
-    ///
-    /// The HTTP spec allows for non-utf8 status texts. This uses from_utf8_lossy to
-    /// convert such lines to &str.
-    pub fn status_text(&self) -> &str {
-        self.status_line.as_str()[self.index.response_code + 1..].trim()
+    pub fn get_status_line(&self) -> Result<(&str, u16, &str), Error> {
+        parse_status_line_from_header(&self.status_line)
     }
 
     /// The header value for the given name, or None if not found.
@@ -154,30 +119,9 @@ impl Response {
     /// In case the header value can't be read as utf-8, this function
     /// returns `None` (while the name is visible in [`Response::headers_names()`]).
     pub fn header(&self, name: &str) -> Option<&str> {
-        get_header(&self.headers, name)
-    }
-
-    /// A list of the header names in this response.
-    /// Lowercased to be uniform.
-    ///
-    /// It's possible for a header name to be returned by this function, and
-    /// still give a `None` value. See [`Response::header()`] for an explanation
-    /// as to why.
-    pub fn headers_names(&self) -> Vec<String> {
-        self.headers
-            .iter()
-            .map(|h| h.name().to_lowercase())
-            .collect()
-    }
-
-    /// Tells if the response has the named header.
-    pub fn has(&self, name: &str) -> bool {
-        self.header(name).is_some()
-    }
-
-    /// All headers corresponding values for the give name, or empty vector.
-    pub fn all(&self, name: &str) -> Vec<&str> {
-        get_all_headers(&self.headers, name)
+        self.headers.header(name)
+            .and_then(|s| std::str::from_utf8(s).ok())
+            .and_then(|s| Some(s.trim()))
     }
 
     /// The content type part of the "Content-Type" header without
@@ -259,7 +203,8 @@ impl Response {
     /// ```
     pub fn into_reader(self) -> impl Read + Send {
         //
-        let is_http10 = self.http_version().eq_ignore_ascii_case("HTTP/1.0");
+        let (http_version, status, status_text) = self.get_status_line().unwrap();
+        let is_http10 = http_version.eq_ignore_ascii_case("HTTP/1.0");
         let is_close = self
             .header("connection")
             .map(|c| c.eq_ignore_ascii_case("close"))
@@ -267,7 +212,7 @@ impl Response {
 
         let is_head = self.unit.as_ref().map(|u| u.is_head()).unwrap_or(false);
         let has_no_body = is_head
-            || match self.status {
+            || match status {
                 204 | 304 => true,
                 _ => false,
             };
@@ -288,6 +233,7 @@ impl Response {
             self.header("content-length")
                 .and_then(|l| l.parse::<usize>().ok())
         };
+        //println!("Limit = {} {:?}", use_chunked, limit_bytes);
 
         let stream = self.stream;
         let unit = self.unit;
@@ -456,31 +402,21 @@ impl Response {
         let mut stream = stream;
 
         // The status line we can ignore non-utf8 chars and parse as_str_lossy().
-        let status_line = read_next_line(&mut stream, "the status line")?.into_string_lossy();
-        let (index, status) = parse_status_line(status_line.as_str())?;
-
-        let mut headers: Vec<Header> = Vec::new();
-        while headers.len() <= MAX_HEADER_COUNT {
-            let line = read_next_line(&mut stream, "a header")?;
-            if line.is_empty() {
-                break;
-            }
-            if let Ok(header) = line.into_header() {
-                headers.push(header);
-            }
+        let mut headers = read_status_and_headers(&mut stream)?;
+        let i = memchr::memchr(b'\n', &headers);
+        if i.is_none() {
+            return Err(ErrorKind::BadStatus.msg(""));
         }
+        let i = i.unwrap();
+        let status_line: Vec<_> = headers.drain(..i+1).collect();
+        //println!("Status: {}", std::str::from_utf8(&status_line).unwrap());
 
-        if headers.len() > MAX_HEADER_COUNT {
-            return Err(ErrorKind::BadHeader.msg(
-                    format!("more than {} header fields in response", MAX_HEADER_COUNT).as_str(),
-                    ));
-        }
+        //println!("Headers: {}", std::str::from_utf8(&headers).unwrap());
+        let headers = Headers::try_from(headers)?;
 
         Ok(Response {
             url: None,
             status_line,
-            index,
-            status,
             headers,
             unit: unit.map(Box::new),
             stream: Box::new(stream.into()),
@@ -512,93 +448,34 @@ impl Response {
         self.history.push(previous_url);
     }
 }
-fn parse_status_line_from_header(line: &[u8]) -> Result<(ResponseStatusIndex, u16), Error> {
-    memchr::memmem::find(b"\r\n", line)
-        .map(|i| {
-            let s = &line[..i];
-            if i < 13 || s[13] != b' ' || s[9] != b' ' {
-                return Err(BadStatus.msg("Status line isn't formatted correctly"));
-            }
-            if s.iter().any(|c| !c.is_ascii()) {
-                return Err(BadStatus.msg("Status line not ASCII"));
-            }
-            else if b"HTTP/ " != &s[..5] || !s[5].is_ascii_digit() || !s[7].is_ascii_digit()  {
-                return Err(BadStatus.msg("HTTP version not formatted correctly"));
-            }
-            else if s[10..13].iter().any(|c| !c.is_ascii_digit()) {
-                return Err(BadStatus.msg("HTTP status code must be a 3 digit number"));
-            }
-            else {
 
-                let n = std::str::from_utf8(&s[10..13]);
-                if n.is_err() {
-                    return Err(BadStatus.msg("HTTP status code must be a 3 digit number"));
-                }
-                let n = n.unwrap();
-                let status: u16 = n.parse().map_err(|_| BadStatus.new())?;
-
-                Ok((
-                        ResponseStatusIndex {
-                            http_version: 10,
-                            response_code: 14,
-                        },
-                        status,
-                        ))
-                
-            }
-        })
-    .unwrap_or_else(|| Err(BadStatus.msg("Status line isn't formatted correctly")))
-}
-
-/// parse a line like: HTTP/1.1 200 OK\r\n
-fn parse_status_line(line: &str) -> Result<(ResponseStatusIndex, u16), Error> {
-    //
-
-    if !line.is_ascii() {
+// HTTP/1.1 200 OK\r\n
+fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, u16, &str), Error> {
+    if s.len() < 12 || s[12] != b' ' || s[8] != b' ' {
+        return Err(BadStatus.msg("Status line isn't formatted correctly"));
+    }
+    if s.iter().any(|c| !c.is_ascii()) {
         return Err(BadStatus.msg("Status line not ASCII"));
     }
-    // https://tools.ietf.org/html/rfc7230#section-3.1.2
-    //      status-line = HTTP-version SP status-code SP reason-phrase CRLF
-    let mut split: Vec<&str> = line.splitn(3, ' ').collect();
-    if split.len() == 2 {
-        // As a special case, we are lenient parsing lines without a space after the code.
-        // This is technically against spec. "HTTP/1.1 200\r\n"
-        split.push("");
+    else if b"HTTP/1.1" != &s[..8] {
+        return Err(BadStatus.msg("HTTP version not formatted correctly"));
     }
-    if split.len() != 3 {
-        return Err(BadStatus.msg("Wrong number of tokens in status line"));
+    else if s[9..12].iter().any(|c| !c.is_ascii_digit()) {
+        return Err(BadStatus.msg("HTTP status code must be a 3 digit number"));
     }
+    else {
+        let n = std::str::from_utf8(&s[9..12]).unwrap();
+        let status: u16 = n.parse().map_err(|_| BadStatus.new())?;
 
-    // https://tools.ietf.org/html/rfc7230#appendix-B
-    //    HTTP-name = %x48.54.54.50 ; HTTP
-    //    HTTP-version = HTTP-name "/" DIGIT "." DIGIT
-    let http_version = split[0];
-    if !http_version.starts_with("HTTP/") {
-        return Err(BadStatus.msg("HTTP version did not start with HTTP/"));
-    }
-    if http_version.len() != 8 {
-        return Err(BadStatus.msg("HTTP version was wrong length"));
-    }
-    if !http_version.as_bytes()[5].is_ascii_digit() || !http_version.as_bytes()[7].is_ascii_digit()
-    {
-        return Err(BadStatus.msg("HTTP version did not match format"));
-    }
-
-    let status_str: &str = split[1];
-    //      status-code    = 3DIGIT
-    if status_str.len() != 3 {
-        return Err(BadStatus.msg("Status code was wrong length"));
-    }
-
-    let status: u16 = status_str.parse().map_err(|_| BadStatus.new())?;
-
-    Ok((
-            ResponseStatusIndex {
-                http_version: http_version.len(),
-                response_code: http_version.len() + status_str.len(),
-            },
+        let text = std::str::from_utf8(&s[12..]).unwrap();
+        Ok((
+            "HTTP/1.1",
             status,
-            ))
+            text,
+            
+        ))
+
+    }
 }
 
 impl FromStr for Response {
@@ -635,10 +512,10 @@ fn read_status_and_headers(reader: &mut impl BufRead) -> io::Result<Vec<u8>> {
                 Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(e) => return Err(e),
             };
-            match memchr::memmem::find(b"\r\n\r\n", available) {
+            match memchr::memmem::find(available, b"\r\n\r\n") {
                 Some(i) => {
-                    buf.extend_from_slice(&available[..=i]);
-                    (true, i + 1)
+                    buf.extend_from_slice(&available[..i+2]);
+                    (true, i + 4)
                 }
                 None => {
                     buf.extend_from_slice(available);
@@ -646,7 +523,6 @@ fn read_status_and_headers(reader: &mut impl BufRead) -> io::Result<Vec<u8>> {
                 }
             }
         };
-
 
         limited_reader.consume(used);
         if done || used == 0 {
