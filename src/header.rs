@@ -6,8 +6,9 @@ use std::convert::TryFrom;
 const MAX_HEADER_SIZE: usize = 1_024;
 const MAX_HEADER_COUNT: usize = 128;
 
-type HeaderVec = tinyvec::TinyVec<[HeaderIndex; MAX_HEADER_COUNT]>;
-type HeaderLineVec = tinyvec::TinyVec<[u8; MAX_HEADER_SIZE]>;
+type HeaderVec = arrayvec::ArrayVec<HeaderIndex, MAX_HEADER_COUNT>;
+type HeaderLineVec = arrayvec::ArrayVec<u8, MAX_HEADER_SIZE>;
+type BufVec = arrayvec::ArrayVec<u8, 4096>;
 
 pub struct Headers {
     indices: HeaderVec,
@@ -30,7 +31,6 @@ impl Default for HeaderIndex {
     }
 }
 
-type BufVec = tinyvec::TinyVec<[u8; 4096]>;
 impl TryFrom<BufVec> for Headers {
     type Error = Error;
     fn try_from(v: BufVec) -> Result<Self, Error> {
@@ -154,9 +154,9 @@ impl fmt::Debug for Header {
 impl Header {
     pub fn new(name: &str, value: &str) -> Self {
         let mut line = HeaderLineVec::new();
-        line.extend_from_slice(name.as_bytes());
-        line.extend_from_slice(b": ");
-        line.extend_from_slice(value.as_bytes());
+        let _ = line.try_extend_from_slice(name.as_bytes());
+        let _ = line.try_extend_from_slice(b": ");
+        let _ = line.try_extend_from_slice(value.as_bytes());
         let index = name.len();
 
         let line = HeaderLine(line);
@@ -291,7 +291,7 @@ impl FromStr for Header {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         //
         let mut line = HeaderLineVec::new();
-        line.extend_from_slice(s.as_bytes());
+        let _  = line.try_extend_from_slice(s.as_bytes());
 
         let line = HeaderLine(line);
         let header = line.into_header()?;

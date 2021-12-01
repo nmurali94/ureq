@@ -28,7 +28,7 @@ webpki = { version = "0.22", optional = true }
 webpki-roots = { version = "0.22", optional = true }
 log = "0.4"
 memchr = "*"
-tinyvec = "*"
+arrayvec = "*"
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }

@@ -1,7 +1,8 @@
 use std::fmt::{self, Display};
 use std::io::{self, Write};
-use std::ops::Range;
 use std::time;
+use std::convert::TryInto;
+use std::io::{BufWriter};
 
 use log::debug;
 use url::Url;
@@ -24,8 +25,8 @@ pub(crate) struct Unit {
     headers: HeaderVec,
     pub deadline: Option<time::Instant>,
 }
-type HistoryVec = tinyvec::TinyVec<[String; 8]>;
-type HeaderVec = tinyvec::TinyVec<[Header; 16]>;
+type HistoryVec = arrayvec::ArrayVec<Url, 8>;
+type HeaderVec = arrayvec::ArrayVec<Header, 16>;
 
 impl Unit {
     //
@@ -39,7 +40,7 @@ impl Unit {
     ) -> Self {
         //
 
-        let headers = headers.into();
+        let headers = headers.try_into().unwrap();
 
         Unit {
             agent: agent.clone(),
@@ -116,7 +117,7 @@ pub(crate) fn connect(
             _ => break resp,
         };
         debug!("redirect {} {} -> {}", status, url, new_url);
-        history.push(unit.url.to_string());
+        history.push(unit.url);
         unit.headers.retain(|h| h.name() != "Content-Length");
 
         // recreate the unit to get a new hostname and cookies for the new host.
@@ -135,7 +136,7 @@ pub(crate) fn connect(
 /// Perform a connection. Does not follow redirects.
 fn connect_inner(
     unit: &Unit,
-    previous: &[String],
+    previous: &[Url],
 ) -> Result<Response, Error> {
     let host = unit
         .url
@@ -143,9 +144,10 @@ fn connect_inner(
         // This unwrap is ok because Request::parse_url() ensure there is always a host present.
         .unwrap();
     // open socket
-    let mut stream = connect_socket(unit, host)?;
+    let stream = connect_socket(unit, host)?;
 
-    let send_result = send_prelude(unit, &mut stream, !previous.is_empty());
+    let mut buf_stream = BufWriter::new(stream);
+    let send_result = send_prelude(unit, &mut buf_stream, !previous.is_empty());
 
     if let Err(err) = send_result {
         // not a pooled connection, propagate the error.
@@ -153,6 +155,7 @@ fn connect_inner(
     }
 
     // start reading the response to process cookies and redirects.
+    let stream = buf_stream.into_inner().unwrap();
     let result = Response::do_from_request(unit.clone(), stream);
 
     // https://tools.ietf.org/html/rfc7230#section-6.3.1
@@ -191,16 +194,14 @@ fn connect_socket(unit: &Unit, hostname: &str) -> Result<Stream, Error> {
 
 /// Send request line + headers (all up until the body).
 #[allow(clippy::write_with_newline)]
-fn send_prelude(unit: &Unit, stream: &mut Stream, redir: bool) -> io::Result<()> {
-    // build into a buffer and send in one go.
-    let mut prelude = PreludeBuilder::new();
+fn send_prelude(unit: &Unit, stream: &mut BufWriter<Stream>, redir: bool) -> io::Result<()> {
 
     // request line
-    prelude.write_request_line(
-        &unit.method,
-        unit.url.path(),
-        unit.url.query().unwrap_or_default(),
-    )?;
+    write!(stream, "{} {}", unit.method, unit.url.path(),)?;
+    if unit.url.query().is_some() {
+        write!(stream, "?{}", unit.url.query().unwrap())?;
+    }
+    write!(stream, " HTTP/1.1\r\n")?;
 
     // host header if not set by user.
     if !header::has_header(&unit.headers, "host") {
@@ -213,42 +214,37 @@ fn send_prelude(unit: &Unit, stream: &mut Stream, redir: bool) -> io::Result<()>
                     _ => 0,
                 };
                 if scheme_default != 0 && scheme_default == port {
-                    prelude.write_header("Host", host)?;
+                    PreludeBuilder::write_header(stream, "Host", host)?;
                 } else {
-                    prelude.write_header("Host", format_args!("{}:{}", host, port))?;
+                    PreludeBuilder::write_header(stream, "Host", format_args!("{}:{}", host, port))?;
                 }
             }
             None => {
-                prelude.write_header("Host", host)?;
+                PreludeBuilder::write_header(stream, "Host", host)?;
             }
         }
     }
     if !header::has_header(&unit.headers, "user-agent") {
-        prelude.write_header("User-Agent", &unit.agent.config.user_agent)?;
+        PreludeBuilder::write_header(stream, "User-Agent", &unit.agent.config.user_agent)?;
     }
     if !header::has_header(&unit.headers, "accept") {
-        prelude.write_header("Accept", "*/*")?;
+        PreludeBuilder::write_header(stream, "Accept", "*/*")?;
     }
 
     // other headers
     for header in &unit.headers {
         if !redir || !header.is_name("Authorization") {
             if let Some(v) = header.value() {
-                if is_header_sensitive(header) {
-                    prelude.write_sensitive_header(header.name(), v)?;
-                } else {
-                    prelude.write_header(header.name(), v)?;
-                }
+                    PreludeBuilder::write_header(stream, header.name(), v)?;
             }
         }
     }
 
     // finish
-    prelude.finish()?;
+    PreludeBuilder::finish(stream)?;
 
-    debug!("writing prelude: {}", prelude);
     // write all to the wire
-    stream.write_all(prelude.as_slice())?;
+    stream.flush()?;
 
     Ok(())
 }
@@ -258,68 +254,21 @@ fn is_header_sensitive(header: &Header) -> bool {
 }
 
 struct PreludeBuilder {
-    prelude: Vec<u8>,
-    // Sensitive information to be omitted in debug logging
-    sensitive_spans: Vec<Range<usize>>,
 }
 
 impl PreludeBuilder {
-    fn new() -> Self {
-        PreludeBuilder {
-            prelude: Vec::with_capacity(256),
-            sensitive_spans: Vec::new(),
-        }
+    fn write_header(stream: &mut BufWriter<Stream>, name: &str, value: impl Display) -> io::Result<()> {
+        write!(stream, "{}: {}\r\n", name, value)
     }
 
-    fn write_request_line(&mut self, method: &str, path: &str, query: &str) -> io::Result<()> {
-        write!(self.prelude, "{} {}", method, path,)?;
-        if !query.is_empty() {
-            write!(self.prelude, "?{}", query)?;
-        }
-        write!(self.prelude, " HTTP/1.1\r\n")?;
-        Ok(())
+    fn finish(stream: &mut BufWriter<Stream>) -> io::Result<()> {
+        write!(stream, "\r\n")
     }
 
-    fn write_header(&mut self, name: &str, value: impl Display) -> io::Result<()> {
-        write!(self.prelude, "{}: {}\r\n", name, value)
-    }
-
-    fn write_sensitive_header(&mut self, name: &str, value: impl Display) -> io::Result<()> {
-        write!(self.prelude, "{}: ", name)?;
-        let start = self.prelude.len();
-        write!(self.prelude, "{}", value)?;
-        let end = self.prelude.len();
-        self.sensitive_spans.push(start..end);
-        write!(self.prelude, "\r\n")?;
-        Ok(())
-    }
-
-    fn finish(&mut self) -> io::Result<()> {
-        write!(self.prelude, "\r\n")
-    }
-
-    fn as_slice(&self) -> &[u8] {
-        &self.prelude
-    }
 }
 
 impl fmt::Display for PreludeBuilder {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut pos = 0;
-        for span in &self.sensitive_spans {
-            write!(
-                f,
-                "{}",
-                String::from_utf8_lossy(&self.prelude[pos..span.start])
-            )?;
-            write!(f, "***")?;
-            pos = span.end;
-        }
-        write!(
-            f,
-            "{}",
-            String::from_utf8_lossy(&self.prelude[pos..]).trim_end()
-        )?;
+    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Ok(())
     }
 }

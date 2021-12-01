@@ -53,9 +53,9 @@ const MAX_HEADER_SIZE: usize = 100 * 1_024; const MAX_HEADER_COUNT: usize = 100;
 /// # }
 /// ```
 
-type StatusVec = tinyvec::TinyVec<[u8; 32]>;
-type HistoryVec = tinyvec::TinyVec<[String; 8]>;
-type BufVec = tinyvec::TinyVec<[u8; 4096]>;
+type StatusVec = arrayvec::ArrayVec<u8, 32>;
+type HistoryVec = arrayvec::ArrayVec<Url, 8>;
+type BufVec = arrayvec::ArrayVec<u8, 4096>;
 
 pub struct Response {
     url: Option<Url>,
@@ -519,11 +519,11 @@ fn read_status_and_headers(reader: &mut impl BufRead) -> io::Result<BufVec> {
             };
             match memchr::memmem::find(available, b"\r\n\r\n") {
                 Some(i) => {
-                    buf.extend_from_slice(&available[..i+2]);
+                    let _ = buf.try_extend_from_slice(&available[..i+2]);
                     (true, i + 4)
                 }
                 None => {
-                    buf.extend_from_slice(available);
+                    let _ = buf.try_extend_from_slice(available);
                     (false, available.len())
                 }
             }
