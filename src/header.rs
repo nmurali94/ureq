@@ -11,7 +11,7 @@ type HeaderLineVec = tinyvec::TinyVec<[u8; MAX_HEADER_SIZE]>;
 
 pub struct Headers {
     indices: HeaderVec,
-    data: Vec<u8>,
+    data: BufVec,
 }
 
 struct HeaderIndex {
@@ -30,9 +30,10 @@ impl Default for HeaderIndex {
     }
 }
 
-impl TryFrom<Vec<u8>> for Headers {
+type BufVec = tinyvec::TinyVec<[u8; 4096]>;
+impl TryFrom<BufVec> for Headers {
     type Error = Error;
-    fn try_from(v: Vec<u8>) -> Result<Self, Error> {
+    fn try_from(v: BufVec) -> Result<Self, Error> {
         let mut start = 0;
         let mut hs = HeaderVec::new();
         for n in memchr::memchr_iter(b'\n', &v) {

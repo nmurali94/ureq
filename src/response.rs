@@ -55,6 +55,7 @@ const MAX_HEADER_SIZE: usize = 100 * 1_024; const MAX_HEADER_COUNT: usize = 100;
 
 type StatusVec = tinyvec::TinyVec<[u8; 32]>;
 type HistoryVec = tinyvec::TinyVec<[String; 8]>;
+type BufVec = tinyvec::TinyVec<[u8; 4096]>;
 
 pub struct Response {
     url: Option<Url>,
@@ -504,8 +505,8 @@ impl FromStr for Response {
     }
 }
 
-fn read_status_and_headers(reader: &mut impl BufRead) -> io::Result<Vec<u8>> {
-    let mut buf = Vec::new();
+fn read_status_and_headers(reader: &mut impl BufRead) -> io::Result<BufVec> {
+    let mut buf = BufVec::new();
 
     let mut limited_reader = reader.take(((MAX_HEADER_SIZE + 1) * MAX_HEADER_COUNT) as u64);
 
@@ -533,6 +534,8 @@ fn read_status_and_headers(reader: &mut impl BufRead) -> io::Result<Vec<u8>> {
             break;
         }
     }
+
+    println!("Header segment size: {}", buf.len());
 
     Ok(buf.into())
 }

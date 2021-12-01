@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use crate::proxy::Proxy;
 use crate::request::Request;
 use std::time::Duration;
 
@@ -13,7 +12,6 @@ pub struct AgentBuilder {
 /// Config as built by AgentBuilder and then static for the lifetime of the Agent.
 #[derive(Debug, Clone)]
 pub(crate) struct AgentConfig {
-    pub proxy: Option<Proxy>,
     pub timeout_connect: Option<Duration>,
     pub timeout_read: Option<Duration>,
     pub timeout_write: Option<Duration>,
@@ -72,7 +70,6 @@ impl AgentBuilder {
     pub fn new() -> Self {
         AgentBuilder {
             config: AgentConfig {
-                proxy: None,
                 timeout_connect: Some(Duration::from_secs(30)),
                 timeout_read: None,
                 timeout_write: None,

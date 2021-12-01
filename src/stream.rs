@@ -13,8 +13,7 @@ use rustls::ClientConnection;
 #[cfg(feature = "tls")]
 use rustls::StreamOwned;
 
-use crate::proxy::Proxy;
-use crate::{error::Error, proxy::Proto};
+use crate::{error::Error};
 
 use crate::error::ErrorKind;
 use crate::unit::Unit;
@@ -270,11 +269,7 @@ pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<Tcp
         } else {
             unit.deadline
         };
-    let proxy: Option<Proxy> = unit.agent.config.proxy.clone();
-    let netloc = match proxy {
-        Some(ref proxy) => format!("{}:{}", proxy.server, proxy.port),
-        None => format!("{}:{}", hostname, port),
-    };
+    let netloc = format!("{}:{}", hostname, port);
 
     // TODO: Find a way to apply deadline to DNS lookup.
     let sock_addrs: SocketVec = netloc.to_socket_addrs()
@@ -283,8 +278,6 @@ pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<Tcp
     if sock_addrs.is_empty() {
         return Err(ErrorKind::Dns.msg(&format!("No ip address for {}", hostname)));
     }
-
-    let proto = proxy.as_ref().map(|proxy| proxy.proto);
 
     let mut any_err = None;
     let mut any_stream = None;
@@ -298,18 +291,7 @@ pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<Tcp
 
         debug!("connecting to {} at {}", netloc, &sock_addr);
 
-        // connect with a configured timeout.
-        let stream = if None != proto && Some(Proto::HTTPConnect) != proto {
-            connect_socks(
-                unit,
-                proxy.clone().unwrap(),
-                connect_deadline,
-                sock_addr,
-                hostname,
-                port,
-                proto.unwrap(),
-            )
-        } else if let Some(timeout) = timeout {
+        let stream = if let Some(timeout) = timeout {
             TcpStream::connect_timeout(&sock_addr, timeout)
         } else {
             TcpStream::connect(&sock_addr)
@@ -323,7 +305,7 @@ pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<Tcp
         }
     }
 
-    let mut stream = if let Some(stream) = any_stream {
+    let stream = if let Some(stream) = any_stream {
         stream
     } else if let Some(e) = any_err {
         return Err(ErrorKind::ConnectionFailed.msg("Connect error").src(e));
@@ -343,199 +325,7 @@ pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<Tcp
         stream.set_write_timeout(unit.agent.config.timeout_write)?;
     }
 
-    if proto == Some(Proto::HTTPConnect) {
-        if let Some(ref proxy) = proxy {
-            write!(stream, "{}", proxy.connect(hostname, port)).unwrap();
-            stream.flush()?;
-
-            let mut proxy_response = Vec::new();
-
-            loop {
-                let mut buf = vec![0; 256];
-                let total = stream.read(&mut buf)?;
-                proxy_response.append(&mut buf);
-                if total < 256 {
-                    break;
-                }
-            }
-
-            Proxy::verify_response(&proxy_response)?;
-        }
-    }
-
     Ok(stream)
-}
-
-#[cfg(feature = "socks-proxy")]
-fn socks_local_nslookup(
-    unit: &Unit,
-    hostname: &str,
-    port: u16,
-) -> Result<TargetAddr, std::io::Error> {
-    let addrs: Vec<SocketAddr> = unit
-        .resolver()
-        .resolve(&format!("{}:{}", hostname, port))
-        .map_err(|e| {
-            std::io::Error::new(io::ErrorKind::NotFound, format!("DNS failure: {}.", e))
-        })?;
-
-    if addrs.is_empty() {
-        return Err(std::io::Error::new(
-            io::ErrorKind::NotFound,
-            "DNS failure: no socket addrs found.",
-        ));
-    }
-
-    match addrs[0].to_target_addr() {
-        Ok(addr) => Ok(addr),
-        Err(err) => {
-            return Err(std::io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("DNS failure: {}.", err),
-            ))
-        }
-    }
-}
-
-#[cfg(feature = "socks-proxy")]
-fn connect_socks(
-    unit: &Unit,
-    proxy: Proxy,
-    deadline: Option<Instant>,
-    proxy_addr: SocketAddr,
-    host: &str,
-    port: u16,
-    proto: Proto,
-) -> Result<TcpStream, std::io::Error> {
-    use socks::TargetAddr::Domain;
-    use std::net::{Ipv4Addr, Ipv6Addr};
-    use std::str::FromStr;
-
-    let host_addr = if Ipv4Addr::from_str(host).is_ok()
-        || Ipv6Addr::from_str(host).is_ok()
-        || proto == Proto::SOCKS4
-    {
-        match socks_local_nslookup(unit, host, port) {
-            Ok(addr) => addr,
-            Err(err) => return Err(err),
-        }
-    } else {
-        Domain(String::from(host), port)
-    };
-
-    // Since SocksXStream doesn't support set_read_timeout, a suboptimal one is implemented via
-    // thread::spawn.
-    // # Happy Path
-    // 1) thread spawns 2) get_socksX_stream returns ok 3) tx sends result ok
-    // 4) slave_signal signals done and cvar notifies master_signal 5) cvar.wait_timeout receives the done signal
-    // 6) rx receives the socks5 stream and the function exists
-    // # Sad path
-    // 1) get_socksX_stream hangs 2)slave_signal does not send done notification 3) cvar.wait_timeout times out
-    // 3) an exception is thrown.
-    // # Defects
-    // 1) In the event of a timeout, a thread may be left running in the background.
-    // TODO: explore supporting timeouts upstream in Socks5Proxy.
-    #[allow(clippy::mutex_atomic)]
-    let stream = if let Some(deadline) = deadline {
-        use std::sync::mpsc::channel;
-        use std::sync::{Arc, Condvar, Mutex};
-        use std::thread;
-        let master_signal = Arc::new((Mutex::new(false), Condvar::new()));
-        let slave_signal = master_signal.clone();
-        let (tx, rx) = channel();
-        thread::spawn(move || {
-            let (lock, cvar) = &*slave_signal;
-            if tx // try to get a socks stream and send it to the parent thread's rx
-                .send(if proto == Proto::SOCKS5 {
-                    get_socks5_stream(&proxy, &proxy_addr, host_addr)
-                } else {
-                    get_socks4_stream(&proxy_addr, host_addr)
-                })
-                .is_ok()
-            {
-                // if sending the stream has succeeded we need to notify the parent thread
-                let mut done = lock.lock().unwrap();
-                // set the done signal to true
-                *done = true;
-                // notify the parent thread
-                cvar.notify_one();
-            }
-        });
-
-        let (lock, cvar) = &*master_signal;
-        let done = lock.lock().unwrap();
-
-        let timeout_connect = time_until_deadline(deadline)?;
-        let done_result = cvar.wait_timeout(done, timeout_connect).unwrap();
-        let done = done_result.0;
-        if *done {
-            rx.recv().unwrap()?
-        } else {
-            return Err(io_err_timeout(format!(
-                "SOCKS proxy: {}:{} timed out connecting after {}ms.",
-                host,
-                port,
-                timeout_connect.as_millis()
-            )));
-        }
-    } else if proto == Proto::SOCKS5 {
-        get_socks5_stream(&proxy, &proxy_addr, host_addr)?
-    } else {
-        get_socks4_stream(&proxy_addr, host_addr)?
-    };
-
-    Ok(stream)
-}
-
-#[cfg(feature = "socks-proxy")]
-fn get_socks5_stream(
-    proxy: &Proxy,
-    proxy_addr: &SocketAddr,
-    host_addr: TargetAddr,
-) -> Result<TcpStream, std::io::Error> {
-    use socks::Socks5Stream;
-    if proxy.use_authorization() {
-        let stream = Socks5Stream::connect_with_password(
-            proxy_addr,
-            host_addr,
-            proxy.user.as_ref().unwrap(),
-            proxy.password.as_ref().unwrap(),
-        )?
-        .into_inner();
-        Ok(stream)
-    } else {
-        match Socks5Stream::connect(proxy_addr, host_addr) {
-            Ok(socks_stream) => Ok(socks_stream.into_inner()),
-            Err(err) => Err(err),
-        }
-    }
-}
-
-#[cfg(feature = "socks-proxy")]
-fn get_socks4_stream(
-    proxy_addr: &SocketAddr,
-    host_addr: TargetAddr,
-) -> Result<TcpStream, std::io::Error> {
-    match socks::Socks4Stream::connect(proxy_addr, host_addr, "") {
-        Ok(socks_stream) => Ok(socks_stream.into_inner()),
-        Err(err) => Err(err),
-    }
-}
-
-#[cfg(not(feature = "socks-proxy"))]
-fn connect_socks(
-    _unit: &Unit,
-    _proxy: Proxy,
-    _deadline: Option<Instant>,
-    _proxy_addr: SocketAddr,
-    _hostname: &str,
-    _port: u16,
-    _proto: Proto,
-) -> Result<TcpStream, std::io::Error> {
-    Err(std::io::Error::new(
-        io::ErrorKind::Other,
-        "SOCKS feature disabled.",
-    ))
 }
 
 #[cfg(test)]
