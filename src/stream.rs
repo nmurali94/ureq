@@ -260,7 +260,7 @@ pub(crate) fn connect_https(unit: &Unit, hostname: &str) -> Result<Stream, Error
     Ok(Stream::from_tls_stream(stream))
 }
 
-type SocketVec = arrayvec::ArrayVec<SocketAddr, 8>;
+type SocketVec = arrayvec::ArrayVec<SocketAddr, 16>;
 
 pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<TcpStream, Error> {
     let connect_deadline: Option<Instant> =
