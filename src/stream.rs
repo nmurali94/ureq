@@ -1,5 +1,5 @@
 use log::debug;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, Read, Write};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::net::TcpStream;
 use std::time::Duration;
@@ -18,12 +18,8 @@ use crate::{error::Error};
 use crate::error::ErrorKind;
 use crate::unit::Unit;
 
-pub(crate) struct Stream {
-    inner: BufReader<Inner>,
-}
-
 #[allow(clippy::large_enum_variant)]
-enum Inner {
+pub(crate) enum Stream {
     Http(TcpStream),
     #[cfg(feature = "tls")]
     Https(rustls::StreamOwned<rustls::ClientConnection, TcpStream>),
@@ -52,11 +48,11 @@ pub(crate) fn io_err_timeout(error: String) -> io::Error {
 
 impl fmt::Debug for Stream {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.inner.get_ref() {
-            Inner::Http(tcpstream) => write!(f, "{:?}", tcpstream),
+        match &self {
+            Stream::Http(tcpstream) => write!(f, "{:?}", tcpstream),
             #[cfg(feature = "tls")]
-            Inner::Https(tlsstream) => write!(f, "{:?}", tlsstream.get_ref()),
-            Inner::Test(_, _) => write!(f, "Stream(Test)"),
+            Stream::Https(tlsstream) => write!(f, "{:?}", tlsstream.get_ref()),
+            Stream::Test(_, _) => write!(f, "Stream(Test)"),
         }
     }
 }
@@ -68,29 +64,29 @@ impl Stream {
     }
 
     pub(crate) fn from_vec(v: Vec<u8>) -> Stream {
-        Stream::logged_create(Stream {
-            inner: BufReader::new(Inner::Test(Box::new(Cursor::new(v)), vec![])),
-        })
+        Stream::logged_create(
+            Stream::Test(Box::new(Cursor::new(v)), vec![]),
+        )
     }
 
     fn from_tcp_stream(t: TcpStream) -> Stream {
-        Stream::logged_create(Stream {
-            inner: BufReader::new(Inner::Http(t)),
-        })
+        Stream::logged_create(
+            Stream::Http(t),
+        )
     }
 
     #[cfg(feature = "tls")]
     fn from_tls_stream(t: StreamOwned<ClientConnection, TcpStream>) -> Stream {
-        Stream::logged_create(Stream {
-            inner: BufReader::new(Inner::Https(t)),
-        })
+        Stream::logged_create(
+            Stream::Https(t),
+        )
     }
 
     pub(crate) fn socket(&self) -> Option<&TcpStream> {
-        match self.inner.get_ref() {
-            Inner::Http(b) => Some(b),
+        match &self {
+            Stream::Http(b) => Some(&b),
             #[cfg(feature = "tls")]
-            Inner::Https(b) => Some(b.get_ref()),
+            Stream::Https(b) => Some(b.get_ref()),
             _ => None,
         }
     }
@@ -105,8 +101,8 @@ impl Stream {
 
     #[cfg(test)]
     pub fn to_write_vec(&self) -> Vec<u8> {
-        match self.inner.get_ref() {
-            Inner::Test(_, writer) => writer.clone(),
+        match &self.get_ref() {
+            Stream::Test(_, writer) => writer.clone(),
             _ => panic!("to_write_vec on non Test stream"),
         }
     }
@@ -114,28 +110,12 @@ impl Stream {
 
 impl Read for Stream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.inner.read(buf)
-    }
-}
-
-impl Read for Inner {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
-            Inner::Http(sock) => sock.read(buf),
+            Stream::Http(sock) => sock.read(buf),
             #[cfg(feature = "tls")]
-            Inner::Https(stream) => read_https(stream, buf),
-            Inner::Test(reader, _) => reader.read(buf),
+            Stream::Https(stream) => read_https(stream, buf),
+            Stream::Test(reader, _) => reader.read(buf),
         }
-    }
-}
-
-impl BufRead for Stream {
-    fn fill_buf(&mut self) -> io::Result<&[u8]> {
-        self.inner.fill_buf()
-    }
-
-    fn consume(&mut self, amt: usize) {
-        self.inner.consume(amt)
     }
 }
 
@@ -179,19 +159,19 @@ fn is_close_notify(e: &std::io::Error) -> bool {
 
 impl Write for Stream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self.inner.get_mut() {
-            Inner::Http(sock) => sock.write(buf),
+        match self {
+            Stream::Http(sock) => sock.write(buf),
             #[cfg(feature = "tls")]
-            Inner::Https(stream) => stream.write(buf),
-            Inner::Test(_, writer) => writer.write(buf),
+            Stream::Https(stream) => stream.write(buf),
+            Stream::Test(_, writer) => writer.write(buf),
         }
     }
     fn flush(&mut self) -> io::Result<()> {
-        match self.inner.get_mut() {
-            Inner::Http(sock) => sock.flush(),
+        match self {
+            Stream::Http(sock) => sock.flush(),
             #[cfg(feature = "tls")]
-            Inner::Https(stream) => stream.flush(),
-            Inner::Test(_, writer) => writer.flush(),
+            Stream::Https(stream) => stream.flush(),
+            Stream::Test(_, writer) => writer.flush(),
         }
     }
 }

@@ -1,6 +1,6 @@
 use std::io::{self, Read};
 use std::str::FromStr;
-use std::{fmt, io::BufRead};
+use std::{fmt, io::BufRead, io::BufReader};
 
 use chunked_transfer::Decoder as ChunkDecoder;
 use url::Url;
@@ -64,7 +64,7 @@ pub struct Response {
     // Boxed to avoid taking up too much size.
     unit: Option<Box<Unit>>,
     // Boxed to avoid taking up too much size.
-    stream: Box<Stream>,
+    stream: BufReader<Stream>,
     pub(crate) history: HistoryVec,
 }
 
@@ -240,12 +240,12 @@ impl Response {
         };
         //println!("Limit = {} {:?}", use_chunked, limit_bytes);
 
-        let stream = self.stream;
+        let mut stream = self.stream;
         let unit = self.unit;
         if let Some(unit) = &unit {
             let result = time_until_deadline(unit.deadline)
                 .and_then(|timeout|{
-                    stream.set_read_timeout(timeout)
+                    stream.get_mut().set_read_timeout(timeout)
                 });
             if let Err(e) = result {
                 return Box::new(ErrorReader(e)) as Box<dyn Read + Send>;
@@ -407,7 +407,7 @@ impl Response {
     pub(crate) fn do_from_stream(stream: Stream, unit: Option<Unit>) -> Result<Response, Error> {
         //
         // HTTP/1.1 200 OK\r\n
-        let mut stream = stream;
+        let mut stream = BufReader::new(stream);
 
         // The status line we can ignore non-utf8 chars and parse as_str_lossy().
         let mut headers = read_status_and_headers(&mut stream)?;
@@ -427,7 +427,7 @@ impl Response {
             status_line,
             headers,
             unit: unit.map(Box::new),
-            stream: Box::new(stream.into()),
+            stream: stream.into(),
             history: HistoryVec::new(),
         })
     }
