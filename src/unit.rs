@@ -1,4 +1,3 @@
-use std::fmt::{self, Display};
 use std::io::{self, Write};
 use std::time;
 use std::convert::TryInto;
@@ -6,8 +5,6 @@ use std::io::{BufWriter, IoSlice};
 
 use log::debug;
 use url::Url;
-
-use arrayvec::ArrayVec;
 
 use crate::error::{Error, ErrorKind};
 use crate::header;
@@ -77,7 +74,7 @@ pub(crate) fn connect(
 ) -> Result<Response, Error> {
     let mut history = HistoryVec::new();
     let mut resp = loop {
-        let resp = connect_inner(&unit, &history)?;
+        let resp = connect_inner(&unit, history.is_empty())?;
 
         let (_version, status, _text) = resp.get_status_line()?;
         // handle redirects
@@ -120,16 +117,11 @@ pub(crate) fn connect(
         };
         debug!("redirect {} {} -> {}", status, url, new_url);
         history.push(unit.url);
-        unit.headers.retain(|h| h.name() != "Content-Length");
+        unit.headers.retain(|h| h.name() != "content-length");
 
         // recreate the unit to get a new hostname and cookies for the new host.
-        unit = Unit::new(
-            &unit.agent,
-            &new_method,
-            &new_url,
-            &unit.headers,
-            unit.deadline,
-        );
+        unit.method = new_method;
+        unit.url = new_url;
     };
     resp.history = history;
     Ok(resp)
@@ -138,7 +130,7 @@ pub(crate) fn connect(
 /// Perform a connection. Does not follow redirects.
 fn connect_inner(
     unit: &Unit,
-    previous: &[Url],
+    empty_previous: bool,
 ) -> Result<Response, Error> {
     let host = unit
         .url
@@ -147,8 +139,8 @@ fn connect_inner(
         .unwrap();
     // open socket
     let mut stream = connect_socket(unit, host)?;
-    let mut buf_stream = BufWriter::new(&mut stream);
-    let send_result = send_prelude(unit, &mut buf_stream, !previous.is_empty());
+    let mut buf_stream = BufWriter::with_capacity(256, &mut stream);
+    let send_result = send_prelude(unit, &mut buf_stream, !empty_previous);
 
     if let Err(err) = send_result {
         // not a pooled connection, propagate the error.
@@ -239,9 +231,9 @@ fn send_prelude(unit: &Unit, stream: &mut BufWriter<&mut Stream>, redir: bool) -
     // finish
 
     v.push(IoSlice::new(b"\r\n"));
-    let c = stream.write_vectored(&v)?;
+    let _ = stream.write_vectored(&v)?;
     // write all to the wire
-    let c = stream.flush()?;
+    let _ = stream.flush()?;
 
     Ok(())
 }

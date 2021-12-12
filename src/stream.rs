@@ -241,18 +241,11 @@ pub(crate) fn connect_https(unit: &Unit, hostname: &str) -> Result<Stream, Error
     Ok(Stream::from_tls_stream(stream))
 }
 
-type SocketVec = arrayvec::ArrayVec<SocketAddr, 16>;
-
 pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<TcpStream, Error> {
     let netloc = format!("{}:{}", hostname, port);
 
     // TODO: Find a way to apply deadline to DNS lookup.
-    let sock_addrs: SocketVec = netloc.to_socket_addrs()
-        .map_err(|e| ErrorKind::Dns.new().src(e))?.collect();
-
-    if sock_addrs.is_empty() {
-        return Err(ErrorKind::Dns.msg(&format!("No ip address for {}", hostname)));
-    }
+    let sock_addrs = netloc.to_socket_addrs()?;
 
     let mut any_err = None;
     let mut any_stream = None;
@@ -277,7 +270,8 @@ pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<Tcp
     } else if let Some(e) = any_err {
         return Err(ErrorKind::ConnectionFailed.msg("Connect error").src(e));
     } else {
-        panic!("shouldn't happen: failed to connect to all IPs, but no error");
+        return Err(ErrorKind::Dns.msg(&format!("No ip address for {}", hostname)));
+        //panic!("shouldn't happen: failed to connect to all IPs, but no error");
     };
 
     let deadline = time_until_deadline(unit.deadline)?;

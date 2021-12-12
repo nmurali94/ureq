@@ -1,5 +1,4 @@
 use std::io::{self, Read};
-use std::str::FromStr;
 use std::{fmt, io::BufRead, io::BufReader};
 
 use chunked_transfer::Decoder as ChunkDecoder;
@@ -58,11 +57,10 @@ type HistoryVec = arrayvec::ArrayVec<Url, 8>;
 type BufVec = arrayvec::ArrayVec<u8, 4096>;
 
 pub struct Response {
-    url: Option<Url>,
     status_line: StatusVec,
     headers: Headers,
     // Boxed to avoid taking up too much size.
-    unit: Option<Box<Unit>>,
+    unit: Unit,
     // Boxed to avoid taking up too much size.
     stream: BufReader<Stream>,
     pub(crate) history: HistoryVec,
@@ -77,9 +75,7 @@ impl fmt::Debug for Response {
             status,
             text,
             )?;
-        if let Some(url) = &self.url {
-            write!(f, ", url: {}", url)?;
-        }
+        write!(f, ", url: {}", self.unit.url)?;
         write!(f, "]")
     }
 }
@@ -100,15 +96,17 @@ impl Response {
     /// # Ok(())
     /// # }
     /// ```
+    /*
     pub fn new(status: u16, status_text: &str, body: &str) -> Result<Response, Error> {
         let r = format!("HTTP/1.1 {} {}\r\n\r\n{}", status, status_text, body);
         (r.as_ref() as &str).parse()
     }
+    */
 
     /// The URL we ended up at. This can differ from the request url when
     /// we have followed redirects.
     pub fn get_url(&self) -> &str {
-        self.url.as_ref().map(|s| &s[..]).unwrap_or("")
+        self.unit.url.as_str()
     }
 
     pub fn get_status_line(&self) -> Result<(&str, u16, &str), Error> {
@@ -215,7 +213,7 @@ impl Response {
             .map(|c| c.eq_ignore_ascii_case("close"))
             .unwrap_or(false);
 
-        let is_head = self.unit.as_ref().map(|u| u.is_head()).unwrap_or(false);
+        let is_head = self.unit.is_head();
         let has_no_body = is_head
             || match status {
                 204 | 304 => true,
@@ -242,7 +240,6 @@ impl Response {
 
         let mut stream = self.stream;
         let unit = self.unit;
-        if let Some(unit) = &unit {
             let result = time_until_deadline(unit.deadline)
                 .and_then(|timeout|{
                     stream.get_mut().set_read_timeout(timeout)
@@ -250,7 +247,6 @@ impl Response {
             if let Err(e) = result {
                 return Box::new(ErrorReader(e)) as Box<dyn Read + Send>;
             }
-        }
 
         match (use_chunked, limit_bytes) {
             (true, _) => Box::new(ChunkDecoder::new(stream)),
@@ -293,6 +289,7 @@ impl Response {
     ///
     /// I.e. `Content-Length: text/plain; charset=iso-8859-1` would be decoded in latin-1.
     ///
+    /*
     pub fn into_string(self) -> io::Result<String> {
         #[cfg(feature = "charset")]
         let encoding = Encoding::for_label(self.charset().as_bytes())
@@ -320,6 +317,7 @@ impl Response {
             Ok(String::from_utf8_lossy(&buf).to_string())
         }
     }
+    */
 
     /// Read the body of this response into a serde_json::Value, or any other type that
     /// implements the [serde::Deserialize] trait.
@@ -404,10 +402,10 @@ impl Response {
     /// let resp = ureq::Response::do_from_read(read);
     ///
     /// assert_eq!(resp.status(), 401);
-    pub(crate) fn do_from_stream(stream: Stream, unit: Option<Unit>) -> Result<Response, Error> {
+    pub(crate) fn do_from_stream(stream: Stream, unit: Unit) -> Result<Response, Error> {
         //
         // HTTP/1.1 200 OK\r\n
-        let mut stream = BufReader::new(stream);
+        let mut stream = BufReader::with_capacity(4096, stream);
 
         // The status line we can ignore non-utf8 chars and parse as_str_lossy().
         let mut headers = read_status_and_headers(&mut stream)?;
@@ -424,19 +422,16 @@ impl Response {
         let headers = Headers::try_from(headers)?;
 
         Ok(Response {
-            url: None,
             status_line,
             headers,
-            unit: unit.map(Box::new),
+            unit: unit,
             stream: stream.into(),
             history: HistoryVec::new(),
         })
     }
 
     pub(crate) fn do_from_request(unit: Unit, stream: Stream) -> Result<Response, Error> {
-        let url = Some(unit.url.clone());
-        let mut resp = Response::do_from_stream(stream, Some(unit))?;
-        resp.url = url;
+        let resp = Response::do_from_stream(stream, unit)?;
         Ok(resp)
     }
 
@@ -487,6 +482,7 @@ fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, u16, &str), Error> {
     }
 }
 
+/*
 impl FromStr for Response {
     type Err = Error;
     /// Parse a response from a string.
@@ -508,6 +504,7 @@ impl FromStr for Response {
         Self::do_from_stream(stream, None)
     }
 }
+*/
 
 fn read_status_and_headers(reader: &mut impl BufRead) -> io::Result<BufVec> {
     let mut buf = BufVec::new();

@@ -34,11 +34,16 @@ impl TryFrom<BufVec> for Headers {
 
             }
             let colon = start + c.unwrap();
-            let key = std::str::from_utf8(&v[start..colon]);
+            let data = &v[start..colon];
+            let data = data.iter()
+                .map(|c| c.to_ascii_lowercase())
+                .collect::<arrayvec::ArrayVec<u8, 128>>();
+            let key = std::str::from_utf8(&data);
             if key.is_err() {
                 return Err(ErrorKind::BadHeader.msg("HTTP header name must be a ascii"));
             }
-            let key = HeaderName::try_from(key.unwrap().trim().to_lowercase().as_str()).unwrap();
+            let key = HeaderName::try_from(key.unwrap().trim()).unwrap();
+
             let value = HeaderValue::try_from(&v[colon+1..end]).unwrap();
 
             start = n + 1;
@@ -46,7 +51,6 @@ impl TryFrom<BufVec> for Headers {
             if map.len() > MAX_HEADER_COUNT {
                 return Err(ErrorKind::BadHeader.msg("HTTP header count exceeds the max supported"));
             }
-
         }
         Ok(Headers(map))
     }
@@ -54,8 +58,11 @@ impl TryFrom<BufVec> for Headers {
 
 impl Headers {
     pub fn header(&self, name: &str) -> Option<&[u8]> {
-        let name = name.trim().to_lowercase();
-        self.0.get(name.as_str()).map(|v| v.as_ref())
+        let data = name.trim().bytes()
+            .map(|c| c.to_ascii_lowercase())
+            .collect::<arrayvec::ArrayVec<u8, 128>>();
+        let key = std::str::from_utf8(&data).unwrap();
+        self.0.get(key).map(|v| v.as_ref())
     }
 }
 
