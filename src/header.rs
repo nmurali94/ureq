@@ -6,36 +6,20 @@ use std::convert::TryFrom;
 const MAX_HEADER_SIZE: usize = 1_024;
 const MAX_HEADER_COUNT: usize = 128;
 
-type HeaderVec = arrayvec::ArrayVec<HeaderIndex, MAX_HEADER_COUNT>;
 type HeaderLineVec = arrayvec::ArrayVec<u8, MAX_HEADER_SIZE>;
+type HeaderName = arrayvec::ArrayString<128>;
+type HeaderValue = arrayvec::ArrayVec<u8, 896>;
 type BufVec = arrayvec::ArrayVec<u8, 4096>;
 
-pub struct Headers {
-    indices: HeaderVec,
-    data: BufVec,
-}
+use std::collections::HashMap;
 
-struct HeaderIndex {
-    start: usize,
-    colon: usize,
-    end: usize,
-}
-
-impl Default for HeaderIndex {
-    fn default() -> Self {
-        HeaderIndex {
-            start: 0,
-            colon: 0,
-            end: 0,
-        }
-    }
-}
+pub struct Headers(HashMap<HeaderName, HeaderValue>);
 
 impl TryFrom<BufVec> for Headers {
     type Error = Error;
     fn try_from(v: BufVec) -> Result<Self, Error> {
         let mut start = 0;
-        let mut hs = HeaderVec::new();
+        let mut map = HashMap::new();
         for n in memchr::memchr_iter(b'\n', &v) {
             let end = if v[n-1] == b'\r' {
                 n-1
@@ -50,34 +34,28 @@ impl TryFrom<BufVec> for Headers {
 
             }
             let colon = start + c.unwrap();
-
-            let h = HeaderIndex {
-                start,
-                colon,
-                end,
-            };
+            let key = std::str::from_utf8(&v[start..colon]);
+            if key.is_err() {
+                return Err(ErrorKind::BadHeader.msg("HTTP header name must be a ascii"));
+            }
+            let key = HeaderName::try_from(key.unwrap().trim().to_lowercase().as_str()).unwrap();
+            let value = HeaderValue::try_from(&v[colon+1..end]).unwrap();
 
             start = n + 1;
-            hs.push(h);
+            map.insert(key, value);
+            if map.len() > MAX_HEADER_COUNT {
+                return Err(ErrorKind::BadHeader.msg("HTTP header count exceeds the max supported"));
+            }
+
         }
-        Ok(Headers {
-            indices: hs,
-            data: v
-        })
+        Ok(Headers(map))
     }
 }
 
 impl Headers {
     pub fn header(&self, name: &str) -> Option<&[u8]> {
-        for idx in &self.indices {
-            let h = &self.data[idx.start..idx.colon];
-            let h_str = std::str::from_utf8(h).unwrap();
-            if h_str.to_lowercase() == name.to_lowercase() {
-                let v = &self.data[idx.colon+1..idx.end];
-                return Some(v);
-            }
-        }
-        None
+        let name = name.trim().to_lowercase();
+        self.0.get(name.as_str()).map(|v| v.as_ref())
     }
 }
 

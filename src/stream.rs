@@ -188,34 +188,35 @@ pub(crate) fn connect_http(unit: &Unit, hostname: &str) -> Result<Stream, Error>
 
     connect_host(unit, hostname, port).map(Stream::from_tcp_stream)
 }
+#[cfg(feature = "tls")]
+use once_cell::sync::Lazy;
+#[cfg(feature = "tls")]
+use std::{convert::TryFrom, sync::Arc};
+#[cfg(feature = "tls")]
+static TLS_CONF: Lazy<Arc<rustls::ClientConfig>> = Lazy::new(|| {
+    let mut root_store = rustls::RootCertStore::empty();
+    #[cfg(not(feature = "native-tls"))]
+    root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
+        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+            ta.subject,
+            ta.spki,
+            ta.name_constraints,
+        )
+    }));
+    #[cfg(feature = "native-tls")]
+    root_store.add_server_trust_anchors(
+        rustls_native_certs::load_native_certs().expect("Could not load platform certs"),
+    );
+
+    let config = rustls::ClientConfig::builder()
+        .with_safe_defaults()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+    Arc::new(config)
+});
 
 #[cfg(feature = "tls")]
 pub(crate) fn connect_https(unit: &Unit, hostname: &str) -> Result<Stream, Error> {
-    use once_cell::sync::Lazy;
-    use std::{convert::TryFrom, sync::Arc};
-
-    static TLS_CONF: Lazy<Arc<rustls::ClientConfig>> = Lazy::new(|| {
-        let mut root_store = rustls::RootCertStore::empty();
-        #[cfg(not(feature = "native-tls"))]
-        root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
-            rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-                ta.subject,
-                ta.spki,
-                ta.name_constraints,
-            )
-        }));
-        #[cfg(feature = "native-tls")]
-        root_store.add_server_trust_anchors(
-            rustls_native_certs::load_native_certs().expect("Could not load platform certs"),
-        );
-
-        let config = rustls::ClientConfig::builder()
-            .with_safe_defaults()
-            .with_root_certificates(root_store)
-            .with_no_client_auth();
-        Arc::new(config)
-    });
-
     let port = unit.url.port().unwrap_or(443);
 
     let tls_conf: Arc<rustls::ClientConfig> = unit

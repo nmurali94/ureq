@@ -411,6 +411,7 @@ impl Response {
 
         // The status line we can ignore non-utf8 chars and parse as_str_lossy().
         let mut headers = read_status_and_headers(&mut stream)?;
+
         let i = memchr::memchr(b'\n', &headers);
         if i.is_none() {
             return Err(ErrorKind::BadStatus.msg(""));
@@ -526,8 +527,8 @@ fn read_status_and_headers(reader: &mut impl BufRead) -> io::Result<BufVec> {
                     (true, i + 4)
                 }
                 None => {
-                    let _ = buf.try_extend_from_slice(available);
-                    (false, available.len())
+                    let _ = buf.try_extend_from_slice(&available[..available.len() - 3]);
+                    (false, available.len() - 3)
                 }
             }
         };
@@ -538,7 +539,7 @@ fn read_status_and_headers(reader: &mut impl BufRead) -> io::Result<BufVec> {
         }
     }
 
-    println!("Header segment size: {}", buf.len());
+    //println!("Header segment size: {}", buf.len());
 
     Ok(buf.into())
 }

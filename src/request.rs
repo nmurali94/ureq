@@ -28,8 +28,9 @@ pub struct Request {
     agent: Agent,
     method: String,
     url: Url,
-    headers: Vec<Header>,
+    headers: HeaderVec,
 }
+type HeaderVec = arrayvec::ArrayVec<Header, 16>;
 
 impl fmt::Debug for Request {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -49,7 +50,7 @@ impl Request {
             agent,
             method,
             url,
-            headers: vec![],
+            headers: HeaderVec::new(),
         })
     }
 

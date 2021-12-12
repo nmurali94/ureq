@@ -2,10 +2,12 @@ use std::fmt::{self, Display};
 use std::io::{self, Write};
 use std::time;
 use std::convert::TryInto;
-use std::io::{BufWriter};
+use std::io::{BufWriter, IoSlice};
 
 use log::debug;
 use url::Url;
+
+use arrayvec::ArrayVec;
 
 use crate::error::{Error, ErrorKind};
 use crate::header;
@@ -144,9 +146,8 @@ fn connect_inner(
         // This unwrap is ok because Request::parse_url() ensure there is always a host present.
         .unwrap();
     // open socket
-    let stream = connect_socket(unit, host)?;
-
-    let mut buf_stream = BufWriter::new(stream);
+    let mut stream = connect_socket(unit, host)?;
+    let mut buf_stream = BufWriter::new(&mut stream);
     let send_result = send_prelude(unit, &mut buf_stream, !previous.is_empty());
 
     if let Err(err) = send_result {
@@ -155,7 +156,7 @@ fn connect_inner(
     }
 
     // start reading the response to process cookies and redirects.
-    let stream = buf_stream.into_inner().unwrap();
+    drop(buf_stream);
     let result = Response::do_from_request(unit.clone(), stream);
 
     // https://tools.ietf.org/html/rfc7230#section-6.3.1
@@ -194,77 +195,53 @@ fn connect_socket(unit: &Unit, hostname: &str) -> Result<Stream, Error> {
 
 /// Send request line + headers (all up until the body).
 #[allow(clippy::write_with_newline)]
-fn send_prelude(unit: &Unit, stream: &mut BufWriter<Stream>, redir: bool) -> io::Result<()> {
+fn send_prelude(unit: &Unit, stream: &mut BufWriter<&mut Stream>, redir: bool) -> io::Result<()> {
 
     // request line
-    write!(stream, "{} {}", unit.method, unit.url.path(),)?;
+    let mut v = arrayvec::ArrayVec::<IoSlice, 64>::new();
+    
+    v.push(IoSlice::new(unit.method.as_bytes()));
+    v.push(IoSlice::new(b" "));
+    v.push(IoSlice::new(unit.url.path().as_bytes()));
     if unit.url.query().is_some() {
-        write!(stream, "?{}", unit.url.query().unwrap())?;
+        v.push(IoSlice::new(b"?"));
+        v.push(IoSlice::new(unit.url.query().unwrap().as_bytes()));
     }
-    write!(stream, " HTTP/1.1\r\n")?;
+    v.push(IoSlice::new(b" HTTP/1.1\r\n"));
 
     // host header if not set by user.
     if !header::has_header(&unit.headers, "host") {
-        let host = unit.url.host().unwrap();
-        match unit.url.port() {
-            Some(port) => {
-                let scheme_default: u16 = match unit.url.scheme() {
-                    "http" => 80,
-                    "https" => 443,
-                    _ => 0,
-                };
-                if scheme_default != 0 && scheme_default == port {
-                    PreludeBuilder::write_header(stream, "Host", host)?;
-                } else {
-                    PreludeBuilder::write_header(stream, "Host", format_args!("{}:{}", host, port))?;
-                }
-            }
-            None => {
-                PreludeBuilder::write_header(stream, "Host", host)?;
-            }
-        }
+        v.push(IoSlice::new(b"Host: "));
+        v.push(IoSlice::new(&unit.url.host_str().unwrap().as_bytes()));
+        v.push(IoSlice::new(b"\r\n"));
     }
     if !header::has_header(&unit.headers, "user-agent") {
-        PreludeBuilder::write_header(stream, "User-Agent", &unit.agent.config.user_agent)?;
+        v.push(IoSlice::new(b"User-Ager: "));
+        v.push(IoSlice::new(&unit.agent.config.user_agent.as_bytes()));
+        v.push(IoSlice::new(b"\r\n"));
     }
     if !header::has_header(&unit.headers, "accept") {
-        PreludeBuilder::write_header(stream, "Accept", "*/*")?;
+        v.push(IoSlice::new(b"Accept: */*\r\n"));
     }
 
     // other headers
     for header in &unit.headers {
         if !redir || !header.is_name("Authorization") {
-            if let Some(v) = header.value() {
-                    PreludeBuilder::write_header(stream, header.name(), v)?;
+            if let Some(val) = header.value() {
+                    v.push(IoSlice::new(header.name().as_bytes()));
+                    v.push(IoSlice::new(b": "));
+                    v.push(IoSlice::new(val.as_bytes()));
+                    v.push(IoSlice::new(b"\r\n"));
             }
         }
     }
 
     // finish
-    PreludeBuilder::finish(stream)?;
 
+    v.push(IoSlice::new(b"\r\n"));
+    let c = stream.write_vectored(&v)?;
     // write all to the wire
-    stream.flush()?;
+    let c = stream.flush()?;
 
     Ok(())
-}
-
-struct PreludeBuilder {
-}
-
-impl PreludeBuilder {
-    fn write_header(stream: &mut BufWriter<Stream>, name: &str, value: impl Display) -> io::Result<()> {
-        write!(stream, "{}: {}\r\n", name, value)
-    }
-
-    fn finish(stream: &mut BufWriter<Stream>) -> io::Result<()> {
-        write!(stream, "\r\n")
-    }
-
-}
-
-impl fmt::Display for PreludeBuilder {
-    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Ok(())
-    }
 }
