@@ -307,6 +307,8 @@ pub use serde_json::{to_value as serde_to_value, Map as SerdeMap, Value as Serde
 use once_cell::sync::Lazy;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Creates an [AgentBuilder].
 pub fn builder() -> AgentBuilder {
     AgentBuilder::new()
@@ -334,7 +336,7 @@ pub fn agent() -> Agent {
 }
 
 /// Make a GET request.
-pub fn get(path: &str) -> Request {
+pub fn get(path: &str) -> Result<Request> {
     agent().get(path)
 }
 

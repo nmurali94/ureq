@@ -7,7 +7,7 @@ use url::Url;
 
 use crate::error::{Error, ErrorKind::BadStatus};
 use crate::header::{Headers};
-use crate::stream::{Stream};
+use crate::stream::{Stream, time_until_deadline};
 use crate::unit::Unit;
 use crate::{ErrorKind};
 
@@ -243,7 +243,10 @@ impl Response {
         let stream = self.stream;
         let unit = self.unit;
         if let Some(unit) = &unit {
-            let result = stream.set_read_timeout(unit.agent.config.timeout_read);
+            let result = time_until_deadline(unit.deadline)
+                .and_then(|timeout|{
+                    stream.set_read_timeout(timeout)
+                });
             if let Err(e) = result {
                 return Box::new(ErrorReader(e)) as Box<dyn Read + Send>;
             }

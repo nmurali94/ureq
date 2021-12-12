@@ -1,6 +1,6 @@
 use std::{fmt};
 
-use url::{ParseError, Url};
+use url::{Url};
 
 use crate::header::{Header};
 use crate::unit::{self, Unit};
@@ -27,7 +27,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct Request {
     agent: Agent,
     method: String,
-    url: String,
+    url: Url,
     headers: Vec<Header>,
 }
 
@@ -42,15 +42,15 @@ impl fmt::Debug for Request {
 }
 
 impl Request {
-    pub(crate) fn new(agent: Agent, method: &str, url: &str) -> Request {
+    pub(crate) fn new(agent: Agent, method: &str, url: &str) -> Result<Request> {
         let method = method.into();
-        let url = url.into();
-        Request {
+        let url = Url::parse(url)?;
+        Ok(Request {
             agent,
             method,
             url,
             headers: vec![],
-        }
+        })
     }
 
     /// Sends the request with no body and blocks the caller until done.
@@ -66,32 +66,23 @@ impl Request {
     /// # Ok(())
     /// # }
     /// ```
-    fn parse_url(&self) -> Result<Url> {
-        Ok(self.url.parse().and_then(|url: Url|
-            // No hostname is fine for urls in general, but not for website urls.
-            if url.host_str().is_none() {
-                Err(ParseError::EmptyHost)
-            } else {
-                Ok(url)
-            })?)
-    }
 
     pub fn call(self) -> Result<Response> {
         for h in &self.headers {
             h.validate()?;
         }
-        let url = self.parse_url()?;
 
-        let deadline = None;
+        let timeout = self.agent.config.timeout_connect;
+        let deadline = std::time::Instant::now().checked_add(timeout).unwrap();
 
         let unit = Unit::new(
             &self.agent,
             &self.method,
-            &url,
+            &self.url,
             &self.headers,
             deadline,
         );
-        let response = unit::connect(unit).map_err(|e| e.url(url.clone()))?;
+        let response = unit::connect(unit).map_err(|e| e.url(self.url.clone()))?;
 
         let (_version, status, _text) = response.get_status_line()?;
 

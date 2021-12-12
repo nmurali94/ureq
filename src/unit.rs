@@ -23,7 +23,7 @@ pub(crate) struct Unit {
     pub method: String,
     pub url: Url,
     headers: HeaderVec,
-    pub deadline: Option<time::Instant>,
+    pub deadline: time::Instant,
 }
 type HistoryVec = arrayvec::ArrayVec<Url, 8>;
 type HeaderVec = arrayvec::ArrayVec<Header, 16>;
@@ -36,7 +36,7 @@ impl Unit {
         method: &str,
         url: &Url,
         headers: &[Header],
-        deadline: Option<time::Instant>,
+        deadline: time::Instant,
     ) -> Self {
         //
 
@@ -247,10 +247,6 @@ fn send_prelude(unit: &Unit, stream: &mut BufWriter<Stream>, redir: bool) -> io:
     stream.flush()?;
 
     Ok(())
-}
-
-fn is_header_sensitive(header: &Header) -> bool {
-    header.is_name("Authorization") || header.is_name("Cookie")
 }
 
 struct PreludeBuilder {

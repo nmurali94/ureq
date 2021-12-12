@@ -38,7 +38,7 @@ enum Inner {
 
 // If the deadline is in the future, return the remaining time until
 // then. Otherwise return a TimedOut error.
-fn time_until_deadline(deadline: Instant) -> io::Result<Duration> {
+pub(crate) fn time_until_deadline(deadline: Instant) -> io::Result<Duration> {
     let now = Instant::now();
     match deadline.checked_duration_since(now) {
         None => Err(io_err_timeout("timed out reading response".to_string())),
@@ -95,9 +95,9 @@ impl Stream {
         }
     }
 
-    pub(crate) fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+    pub(crate) fn set_read_timeout(&self, timeout: Duration) -> io::Result<()> {
         if let Some(socket) = self.socket() {
-            socket.set_read_timeout(timeout)
+            socket.set_read_timeout(Some(timeout))
         } else {
             Ok(())
         }
@@ -263,12 +263,6 @@ pub(crate) fn connect_https(unit: &Unit, hostname: &str) -> Result<Stream, Error
 type SocketVec = arrayvec::ArrayVec<SocketAddr, 16>;
 
 pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<TcpStream, Error> {
-    let connect_deadline: Option<Instant> =
-        if let Some(timeout_connect) = unit.agent.config.timeout_connect {
-            Instant::now().checked_add(timeout_connect)
-        } else {
-            unit.deadline
-        };
     let netloc = format!("{}:{}", hostname, port);
 
     // TODO: Find a way to apply deadline to DNS lookup.
@@ -284,18 +278,10 @@ pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<Tcp
     // Find the first sock_addr that accepts a connection
     for sock_addr in sock_addrs {
         // ensure connect timeout or overall timeout aren't yet hit.
-        let timeout = match connect_deadline {
-            Some(deadline) => Some(time_until_deadline(deadline)?),
-            None => None,
-        };
-
+        let timeout = time_until_deadline(unit.deadline)?;
         debug!("connecting to {} at {}", netloc, &sock_addr);
 
-        let stream = if let Some(timeout) = timeout {
-            TcpStream::connect_timeout(&sock_addr, timeout)
-        } else {
-            TcpStream::connect(&sock_addr)
-        };
+        let stream = TcpStream::connect_timeout(&sock_addr, timeout);
 
         if let Ok(stream) = stream {
             any_stream = Some(stream);
@@ -313,17 +299,9 @@ pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<Tcp
         panic!("shouldn't happen: failed to connect to all IPs, but no error");
     };
 
-    if let Some(deadline) = unit.deadline {
-        stream.set_read_timeout(Some(time_until_deadline(deadline)?))?;
-    } else {
-        stream.set_read_timeout(unit.agent.config.timeout_read)?;
-    }
-
-    if let Some(deadline) = unit.deadline {
-        stream.set_write_timeout(Some(time_until_deadline(deadline)?))?;
-    } else {
-        stream.set_write_timeout(unit.agent.config.timeout_write)?;
-    }
+    let deadline = time_until_deadline(unit.deadline)?;
+    stream.set_read_timeout(Some(deadline))?;
+    stream.set_write_timeout(Some(deadline))?;
 
     Ok(stream)
 }

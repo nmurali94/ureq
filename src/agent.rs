@@ -2,6 +2,9 @@ use std::sync::Arc;
 
 use crate::request::Request;
 use std::time::Duration;
+use crate::{error::Error};
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// Accumulates options towards building an [Agent].
 #[derive(Debug)]
@@ -12,9 +15,7 @@ pub struct AgentBuilder {
 /// Config as built by AgentBuilder and then static for the lifetime of the Agent.
 #[derive(Debug, Clone)]
 pub(crate) struct AgentConfig {
-    pub timeout_connect: Option<Duration>,
-    pub timeout_read: Option<Duration>,
-    pub timeout_write: Option<Duration>,
+    pub timeout_connect: Duration,
     pub redirects: u32,
     pub user_agent: String,
     #[cfg(feature = "tls")]
@@ -47,8 +48,6 @@ pub(crate) struct AgentConfig {
 #[derive(Debug, Clone)]
 pub struct Agent {
     pub(crate) config: Arc<AgentConfig>,
-    /// Reused agent state for repeated requests from this agent.
-    pub(crate) state: Arc<AgentState>,
 }
 
 /// Container of the state
@@ -60,7 +59,7 @@ pub(crate) struct AgentState {
 
 impl Agent {
     /// Make a GET request from this agent.
-    pub fn get(&self, path: &str) -> Request {
+    pub fn get(&self, path: &str) -> Result<Request> {
         let agent = AgentBuilder::new().build();
         Request::new(agent, "GET", path)
     }
@@ -70,9 +69,7 @@ impl AgentBuilder {
     pub fn new() -> Self {
         AgentBuilder {
             config: AgentConfig {
-                timeout_connect: Some(Duration::from_secs(30)),
-                timeout_read: None,
-                timeout_write: None,
+                timeout_connect: Duration::from_secs(30),
                 redirects: 5,
                 user_agent: format!("ureq/{}", env!("CARGO_PKG_VERSION")),
                 #[cfg(feature = "tls")]
@@ -89,8 +86,6 @@ impl AgentBuilder {
     pub fn build(self) -> Agent {
         Agent {
             config: Arc::new(self.config),
-            state: Arc::new(AgentState {
-            }),
         }
     }
 }
