@@ -71,7 +71,7 @@ impl AgentBuilder {
             config: AgentConfig {
                 timeout_connect: Duration::from_secs(30),
                 redirects: 5,
-                user_agent: format!("ureq/{}", env!("CARGO_PKG_VERSION")),
+                user_agent: "ureq/2.3.1".into(),
                 #[cfg(feature = "tls")]
                 tls_config: None,
             },

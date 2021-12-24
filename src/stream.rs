@@ -242,7 +242,7 @@ pub(crate) fn connect_https(unit: &Unit, hostname: &str) -> Result<Stream, Error
 }
 
 pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<TcpStream, Error> {
-    let netloc = format!("{}:{}", hostname, port);
+    let netloc = (hostname, port);
 
     // TODO: Find a way to apply deadline to DNS lookup.
     let sock_addrs = netloc.to_socket_addrs()?;
@@ -253,7 +253,7 @@ pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<Tcp
     for sock_addr in sock_addrs {
         // ensure connect timeout or overall timeout aren't yet hit.
         let timeout = time_until_deadline(unit.deadline)?;
-        debug!("connecting to {} at {}", netloc, &sock_addr);
+        debug!("connecting to {:?} at {}", netloc, &sock_addr);
 
         let stream = TcpStream::connect_timeout(&sock_addr, timeout);
 

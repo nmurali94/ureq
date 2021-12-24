@@ -142,6 +142,7 @@ fn connect_inner(
     let mut buf_stream = BufWriter::with_capacity(256, &mut stream);
     let send_result = send_prelude(unit, &mut buf_stream, !empty_previous);
 
+
     if let Err(err) = send_result {
         // not a pooled connection, propagate the error.
         return Err(err.into());

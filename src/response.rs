@@ -55,6 +55,7 @@ const MAX_HEADER_SIZE: usize = 100 * 1_024; const MAX_HEADER_COUNT: usize = 100;
 type StatusVec = arrayvec::ArrayVec<u8, 32>;
 type HistoryVec = arrayvec::ArrayVec<Url, 8>;
 type BufVec = arrayvec::ArrayVec<u8, 4096>;
+type CarryOver = arrayvec::ArrayVec<u8, 4096>;
 
 pub struct Response {
     status_line: StatusVec,
@@ -62,7 +63,8 @@ pub struct Response {
     // Boxed to avoid taking up too much size.
     unit: Unit,
     // Boxed to avoid taking up too much size.
-    stream: BufReader<Stream>,
+    stream: Stream,
+    carryover: CarryOver,
     pub(crate) history: HistoryVec,
 }
 
@@ -204,7 +206,7 @@ impl Response {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn into_reader(self) -> impl Read + Send {
+    pub fn into_reader(self) -> (impl Read + Send, CarryOver) {
         //
         let (http_version, status, _status_text) = self.get_status_line().unwrap();
         let is_http10 = http_version.eq_ignore_ascii_case("HTTP/1.0");
@@ -236,24 +238,24 @@ impl Response {
             self.header("content-length")
                 .and_then(|l| l.parse::<usize>().ok())
         };
-        //println!("Limit = {} {:?}", use_chunked, limit_bytes);
+        //println!("Limit = {} {:?}, {}", use_chunked, limit_bytes, self.carryover.len());
 
         let mut stream = self.stream;
         let unit = self.unit;
             let result = time_until_deadline(unit.deadline)
                 .and_then(|timeout|{
-                    stream.get_mut().set_read_timeout(timeout)
+                    stream.set_read_timeout(timeout)
                 });
             if let Err(e) = result {
-                return Box::new(ErrorReader(e)) as Box<dyn Read + Send>;
+                return (Box::new(ErrorReader(e)) as Box<dyn Read + Send>, self.carryover);
             }
 
         match (use_chunked, limit_bytes) {
-            (true, _) => Box::new(ChunkDecoder::new(stream)),
+            (true, _) => (Box::new(ChunkDecoder::new(stream)), self.carryover),
             (false, Some(len)) => {
-                Box::new(LimitedRead::new(stream, len))
+                (Box::new(LimitedRead::new(stream, len - self.carryover.len())), self.carryover)
             }
-            (false, None) => Box::new(stream),
+            (false, None) => (Box::new(stream), self.carryover),
         }
     }
 
@@ -405,10 +407,11 @@ impl Response {
     pub(crate) fn do_from_stream(stream: Stream, unit: Unit) -> Result<Response, Error> {
         //
         // HTTP/1.1 200 OK\r\n
-        let mut stream = BufReader::with_capacity(4096, stream);
+        //let mut stream = BufReader::with_capacity(4096, stream);
+        let mut stream = stream;
 
         // The status line we can ignore non-utf8 chars and parse as_str_lossy().
-        let mut headers = read_status_and_headers(&mut stream)?;
+        let (mut headers, carryover) = read_status_and_headers(&mut stream)?;
 
         let i = memchr::memchr(b'\n', &headers);
         if i.is_none() {
@@ -425,7 +428,8 @@ impl Response {
             status_line,
             headers,
             unit: unit,
-            stream: stream.into(),
+            stream: stream,
+            carryover: carryover,
             history: HistoryVec::new(),
         })
     }
@@ -506,39 +510,49 @@ impl FromStr for Response {
 }
 */
 
-fn read_status_and_headers(reader: &mut impl BufRead) -> io::Result<BufVec> {
+fn read_status_and_headers(reader: &mut impl Read) -> io::Result<(BufVec, CarryOver)> {
     let mut buf = BufVec::new();
+    let mut buffer = [0u8; 4096];
 
-    let mut limited_reader = reader.take(((MAX_HEADER_SIZE + 1) * MAX_HEADER_COUNT) as u64);
+    let limited_reader = reader;
+    //let mut limited_reader = reader.take(((MAX_HEADER_SIZE + 1) * MAX_HEADER_COUNT) as u64);
+
+    let mut carry = 0;
 
     loop {
-        let (done, used) = {
-            let available = match limited_reader.fill_buf() {
+            let r = limited_reader.read(&mut buffer[carry..]);
+
+            let mut c = match r {
                 Ok(n) => n,
                 Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(e) => return Err(e),
             };
-            match memchr::memmem::find(available, b"\r\n\r\n") {
+            if c == 0 {
+                break;
+            }
+            c += carry;
+            let crlf = memchr::memmem::find(&buffer[..c], b"\r\n\r\n");
+            match crlf {
                 Some(i) => {
-                    let _ = buf.try_extend_from_slice(&available[..i+2]);
-                    (true, i + 4)
+                    let _ = buf.try_extend_from_slice(&buffer[..i+2]);
+                    buffer.copy_within(i+4..c, 0);
+                    //println!("Buffer state {}", std::str::from_utf8(&buffer[..(c - i - 4)]).unwrap());
+                    carry = c - i - 4;
+                    break;
                 }
                 None => {
-                    let _ = buf.try_extend_from_slice(&available[..available.len() - 3]);
-                    (false, available.len() - 3)
+                    let _ = buf.try_extend_from_slice(&buffer[..c - 3]);
+                    buffer.copy_within(c - 3..c, 0);
+                    carry = 3;
                 }
             }
-        };
-
-        limited_reader.consume(used);
-        if done || used == 0 {
-            break;
-        }
     }
 
-    //println!("Header segment size: {}", buf.len());
+    //println!("Header segment size: {}", std::str::from_utf8(&buffer).unwrap());
 
-    Ok(buf.into())
+    let mut carryover = CarryOver::new();
+    let _ = carryover.try_extend_from_slice(&buffer[..carry]).unwrap();
+    Ok((buf.into(), carryover))
 }
 
 /// Limits a `Read` to a content size (as set by a "Content-Length" header).
