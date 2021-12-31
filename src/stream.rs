@@ -256,7 +256,9 @@ pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<Tcp
         let timeout = time_until_deadline(unit.deadline)?;
         debug!("connecting to {:?} at {}", netloc, &sock_addr);
 
-        let stream = TcpStream::connect_timeout(&sock_addr, timeout);
+        // connect_timeout uses non-blocking connect which runs a large number of poll syscalls
+        //let stream = TcpStream::connect_timeout(&sock_addr, timeout);
+        let stream = TcpStream::connect(sock_addr);
 
         if let Ok(stream) = stream {
             any_stream = Some(stream);
