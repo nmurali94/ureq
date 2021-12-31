@@ -4,7 +4,8 @@ use std::convert::TryInto;
 use std::io::{BufWriter, IoSlice};
 
 use log::debug;
-use url::Url;
+//use url::Url;
+use crate::url::Url;
 
 use crate::error::{Error, ErrorKind};
 use crate::header;
@@ -24,7 +25,7 @@ pub(crate) struct Unit {
     headers: HeaderVec,
     pub deadline: time::Instant,
 }
-type HistoryVec = arrayvec::ArrayVec<Url, 8>;
+//type HistoryVec = arrayvec::ArrayVec<Url, 8>;
 type HeaderVec = arrayvec::ArrayVec<Header, 16>;
 
 impl Unit {
@@ -72,58 +73,16 @@ impl Unit {
 pub(crate) fn connect(
     mut unit: Unit,
 ) -> Result<Response, Error> {
-    let mut history = HistoryVec::new();
-    let mut resp = loop {
-        let resp = connect_inner(&unit, history.is_empty())?;
+    //let mut history = HistoryVec::new();
+        let resp = connect_inner(&unit, true)?;
 
         let (_version, status, _text) = resp.get_status_line()?;
         // handle redirects
-        if !(300..399).contains(&status) || unit.agent.config.redirects == 0 {
-            break resp;
-        }
-        if history.len() + 1 >= unit.agent.config.redirects as usize {
+        if (300..399).contains(&status) {
+            println!("Resp {:?}", resp);
+            std::process::exit(-1);
             return Err(ErrorKind::TooManyRedirects.new());
         }
-        // the location header
-        let location = match resp.header("location") {
-            Some(l) => l,
-            None => break resp,
-        };
-
-        let url = &unit.url;
-        let method = &unit.method;
-        // join location header to current url in case it is relative
-        let new_url = url.join(location).map_err(|e| {
-            ErrorKind::InvalidUrl
-                .msg(&format!("Bad redirection: {}", location))
-                .src(e)
-        })?;
-
-        // perform the redirect differently depending on 3xx code.
-        let new_method = match status {
-            // this is to follow how curl does it. POST, PUT etc change
-            // to GET on a redirect.
-            301 | 302 | 303 => match &method[..] {
-                "GET" | "HEAD" => unit.method,
-                _ => "GET".into(),
-            },
-            // never change the method for 307/308
-            // only resend the request if it cannot have a body
-            // NOTE: DELETE is intentionally excluded: https://stackoverflow.com/questions/299628
-            307 | 308 if ["GET", "HEAD", "OPTIONS", "TRACE"].contains(&method.as_str()) => {
-                unit.method
-            }
-            _ => break resp,
-        };
-        debug!("redirect {} {} -> {}", status, url, new_url);
-        history.push(unit.url);
-        unit.headers.retain(|h| h.name() != "content-length");
-
-        // recreate the unit to get a new hostname and cookies for the new host.
-        unit.method = new_method;
-        unit.url = new_url;
-    };
-    resp.history = history;
     Ok(resp)
 }
 
@@ -135,8 +94,7 @@ fn connect_inner(
     let host = unit
         .url
         .host_str()
-        // This unwrap is ok because Request::parse_url() ensure there is always a host present.
-        .unwrap();
+        ;
     // open socket
     let mut stream = connect_socket(unit, host)?;
     let mut buf_stream = BufWriter::with_capacity(256, &mut stream);
@@ -205,7 +163,7 @@ fn send_prelude(unit: &Unit, stream: &mut BufWriter<&mut Stream>, redir: bool) -
     // host header if not set by user.
     if !header::has_header(&unit.headers, "host") {
         v.push(IoSlice::new(b"Host: "));
-        v.push(IoSlice::new(&unit.url.host_str().unwrap().as_bytes()));
+        v.push(IoSlice::new(&unit.url.host_str().as_bytes()));
         v.push(IoSlice::new(b"\r\n"));
     }
     if !header::has_header(&unit.headers, "user-agent") {
@@ -232,6 +190,12 @@ fn send_prelude(unit: &Unit, stream: &mut BufWriter<&mut Stream>, redir: bool) -
     // finish
 
     v.push(IoSlice::new(b"\r\n"));
+    /*
+    let mut arr = [0u8; 2048];
+    let c = (&mut arr[..]).write_vectored(&v)?;
+    println!("Arr \n{}", std::str::from_utf8(&arr[..c]).unwrap());
+    */
+
     let _ = stream.write_vectored(&v)?;
     // write all to the wire
     let _ = stream.flush()?;

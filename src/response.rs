@@ -2,7 +2,7 @@ use std::io::{self, Read};
 use std::{fmt, io::BufRead, io::BufReader};
 
 use chunked_transfer::Decoder as ChunkDecoder;
-use url::Url;
+//use url::Url;
 
 use crate::error::{Error, ErrorKind::BadStatus};
 use crate::header::{Headers};
@@ -53,7 +53,7 @@ const MAX_HEADER_SIZE: usize = 100 * 1_024; const MAX_HEADER_COUNT: usize = 100;
 /// ```
 
 type StatusVec = arrayvec::ArrayVec<u8, 32>;
-type HistoryVec = arrayvec::ArrayVec<Url, 8>;
+//type HistoryVec = arrayvec::ArrayVec<Url, 8>;
 type BufVec = arrayvec::ArrayVec<u8, 4096>;
 type CarryOver = arrayvec::ArrayVec<u8, 4096>;
 
@@ -65,7 +65,7 @@ pub struct Response {
     // Boxed to avoid taking up too much size.
     stream: Stream,
     carryover: CarryOver,
-    pub(crate) history: HistoryVec,
+    //pub(crate) history: HistoryVec,
 }
 
 impl fmt::Debug for Response {
@@ -77,7 +77,7 @@ impl fmt::Debug for Response {
             status,
             text,
             )?;
-        write!(f, ", url: {}", self.unit.url)?;
+        write!(f, ", url: {:?}", self.unit.url)?;
         write!(f, "]")
     }
 }
@@ -430,7 +430,7 @@ impl Response {
             unit: unit,
             stream: stream,
             carryover: carryover,
-            history: HistoryVec::new(),
+            //history: HistoryVec::new(),
         })
     }
 

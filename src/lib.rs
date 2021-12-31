@@ -285,6 +285,7 @@ mod request;
 mod response;
 mod stream;
 mod unit;
+mod url;
 
 #[cfg(feature = "json")]
 pub use serde_json::json;

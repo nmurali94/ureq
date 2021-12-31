@@ -1,11 +1,12 @@
 use std::{fmt};
 
-use url::{Url};
+//use url::{Url};
+use crate::url::{Url};
 
 use crate::header::{Header};
 use crate::unit::{self, Unit};
 use crate::Response;
-use crate::{agent::Agent, error::Error};
+use crate::{agent::Agent, error::Error, error::ErrorKind};
 
 #[cfg(feature = "json")]
 use super::SerdeValue;
@@ -36,7 +37,7 @@ impl fmt::Debug for Request {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "Request({} {}, {:?})",
+            "Request({} {:?}, {:?})",
             self.method, self.url, self.headers
         )
     }
@@ -45,7 +46,7 @@ impl fmt::Debug for Request {
 impl Request {
     pub(crate) fn new(agent: Agent, method: &str, url: &str) -> Result<Request> {
         let method = method.into();
-        let url = Url::parse(url)?;
+        let url = Url::parse(url.to_owned()).map_err(|e| ErrorKind::HTTP.new())?;
         Ok(Request {
             agent,
             method,

@@ -1,4 +1,5 @@
-use url::{ParseError, Url};
+//use url::{ParseError, Url};
+use crate::url::{ParseError, Url};
 
 use std::error;
 use std::fmt::{self, Display};
@@ -138,9 +139,6 @@ impl Display for Error {
         match self {
             Error::Status(status, response) => {
                 write!(f, "{}: status code {}", response.get_url(), status)?;
-                if let Some(original) = response.history.get(0) {
-                    write!(f, " (redirected from {})", original)?;
-                }
             }
             Error::Transport(err) => {
                 write!(f, "{}", err)?;
@@ -153,7 +151,7 @@ impl Display for Error {
 impl Display for Transport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(url) = &self.url {
-            write!(f, "{}: ", url)?;
+            write!(f, "{:?}: ", url)?;
         }
         write!(f, "{}", self.kind)?;
         if let Some(message) = &self.message {
@@ -296,7 +294,7 @@ impl From<ParseError> for Error {
     fn from(err: ParseError) -> Self {
         ErrorKind::InvalidUrl
             .msg(&format!("failed to parse URL: {:?}", err))
-            .src(err)
+            //.src(err)
     }
 }
 

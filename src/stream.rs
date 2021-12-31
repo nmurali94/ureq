@@ -243,6 +243,7 @@ pub(crate) fn connect_https(unit: &Unit, hostname: &str) -> Result<Stream, Error
 
 pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<TcpStream, Error> {
     let netloc = (hostname, port);
+    //println!("Netloc {:?}", netloc);
 
     // TODO: Find a way to apply deadline to DNS lookup.
     let sock_addrs = netloc.to_socket_addrs()?;
