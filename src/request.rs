@@ -46,7 +46,7 @@ impl fmt::Debug for Request {
 impl Request {
     pub(crate) fn new(agent: Agent, method: &str, url: &str) -> Result<Request> {
         let method = method.into();
-        let url = Url::parse(url.to_owned()).map_err(|e| ErrorKind::HTTP.new())?;
+        let url = Url::parse(url.to_owned()).map_err(|_e| ErrorKind::HTTP.new())?;
         Ok(Request {
             agent,
             method,

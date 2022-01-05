@@ -1,5 +1,5 @@
 use std::io::{self, Read};
-use std::{fmt, io::BufRead, io::BufReader};
+use std::{fmt};
 
 use chunked_transfer::Decoder as ChunkDecoder;
 //use url::Url;
@@ -20,10 +20,6 @@ use encoding_rs::Encoding;
 
 pub const DEFAULT_CONTENT_TYPE: &str = "text/plain";
 pub const DEFAULT_CHARACTER_SET: &str = "utf-8";
-const INTO_STRING_LIMIT: usize = 10 * 1_024 * 1_024;
-// Follow the example of curl and limit a single header to 100kB:
-// https://curl.se/libcurl/c/CURLOPT_HEADERFUNCTION.html
-const MAX_HEADER_SIZE: usize = 100 * 1_024; const MAX_HEADER_COUNT: usize = 100;
 
 /// Response instances are created as results of firing off requests.
 ///
@@ -240,7 +236,7 @@ impl Response {
         };
         //println!("Limit = {} {:?}, {}", use_chunked, limit_bytes, self.carryover.len());
 
-        let mut stream = self.stream;
+        let stream = self.stream;
         let unit = self.unit;
             let result = time_until_deadline(unit.deadline)
                 .and_then(|timeout|{

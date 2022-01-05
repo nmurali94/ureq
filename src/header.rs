@@ -139,9 +139,9 @@ impl fmt::Debug for Header {
 impl Header {
     pub fn new(name: &str, value: &str) -> Self {
         let mut line = HeaderLineVec::new();
-        let _ = line.try_extend_from_slice(name.as_bytes());
-        let _ = line.try_extend_from_slice(b": ");
-        let _ = line.try_extend_from_slice(value.as_bytes());
+        let _ = line.try_extend_from_slice(name.as_bytes()).unwrap();
+        let _ = line.try_extend_from_slice(b": ").unwrap();
+        let _ = line.try_extend_from_slice(value.as_bytes()).unwrap();
         let index = name.len();
 
         let line = HeaderLine(line);

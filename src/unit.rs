@@ -3,7 +3,6 @@ use std::time;
 use std::convert::TryInto;
 use std::io::{BufWriter, IoSlice};
 
-use log::debug;
 //use url::Url;
 use crate::url::Url;
 
@@ -71,7 +70,7 @@ impl Unit {
 
 /// Perform a connection. Follows redirects.
 pub(crate) fn connect(
-    mut unit: Unit,
+    unit: Unit,
 ) -> Result<Response, Error> {
     //let mut history = HistoryVec::new();
         let resp = connect_inner(&unit, true)?;
@@ -80,7 +79,6 @@ pub(crate) fn connect(
         // handle redirects
         if (300..399).contains(&status) {
             println!("Resp {:?}", resp);
-            std::process::exit(-1);
             return Err(ErrorKind::TooManyRedirects.new());
         }
     Ok(resp)
@@ -172,7 +170,10 @@ fn send_prelude(unit: &Unit, stream: &mut BufWriter<&mut Stream>, redir: bool) -
         v.push(IoSlice::new(b"\r\n"));
     }
     if !header::has_header(&unit.headers, "accept") {
-        v.push(IoSlice::new(b"Accept: */*\r\n"));
+        v.push(IoSlice::new(b"Accept: text/plain\r\n"));
+    }
+    if !header::has_header(&unit.headers, "accept-encoding") {
+        v.push(IoSlice::new(b"Accept-Encoding: Identity\r\n"));
     }
 
     // other headers

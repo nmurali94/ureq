@@ -1,10 +1,10 @@
 use log::debug;
 use std::io::{self, Read, Write};
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::{ToSocketAddrs};
 use std::net::TcpStream;
 use std::time::Duration;
 use std::time::Instant;
-use std::{fmt, io::Cursor};
+use std::{fmt};
 
 use chunked_transfer::Decoder as ChunkDecoder;
 
@@ -63,11 +63,6 @@ impl Stream {
         stream
     }
 
-    pub(crate) fn from_vec(v: Vec<u8>) -> Stream {
-        Stream::logged_create(
-            Stream::Test(Box::new(Cursor::new(v)), vec![]),
-        )
-    }
 
     fn from_tcp_stream(t: TcpStream) -> Stream {
         Stream::logged_create(
@@ -253,7 +248,6 @@ pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<Tcp
     // Find the first sock_addr that accepts a connection
     for sock_addr in sock_addrs {
         // ensure connect timeout or overall timeout aren't yet hit.
-        let timeout = time_until_deadline(unit.deadline)?;
         debug!("connecting to {:?} at {}", netloc, &sock_addr);
 
         // connect_timeout uses non-blocking connect which runs a large number of poll syscalls
