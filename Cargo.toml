@@ -27,6 +27,8 @@ rustls = { version = "0.20", optional = true }
 webpki = { version = "0.22", optional = true }
 webpki-roots = { version = "0.22", optional = true }
 log = "0.4"
+
+dns-parser = "*"
 memchr = "*"
 arrayvec = "*"
 

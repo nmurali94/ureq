@@ -1,10 +1,12 @@
-use log::debug;
 use std::io::{self, Read, Write};
-use std::net::{ToSocketAddrs};
 use std::net::TcpStream;
 use std::time::Duration;
 use std::time::Instant;
 use std::{fmt};
+use std::net::{UdpSocket, SocketAddr};
+
+use dns_parser::RData::A;
+use dns_parser::{Builder, Packet, QueryClass, QueryType};
 
 use chunked_transfer::Decoder as ChunkDecoder;
 
@@ -59,7 +61,6 @@ impl fmt::Debug for Stream {
 
 impl Stream {
     fn logged_create(stream: Stream) -> Stream {
-        debug!("created stream: {:?}", stream);
         stream
     }
 
@@ -77,22 +78,6 @@ impl Stream {
         )
     }
 
-    pub(crate) fn socket(&self) -> Option<&TcpStream> {
-        match &self {
-            Stream::Http(b) => Some(&b),
-            #[cfg(feature = "tls")]
-            Stream::Https(b) => Some(b.get_ref()),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn set_read_timeout(&self, timeout: Duration) -> io::Result<()> {
-        if let Some(socket) = self.socket() {
-            socket.set_read_timeout(Some(timeout))
-        } else {
-            Ok(())
-        }
-    }
 
     #[cfg(test)]
     pub fn to_write_vec(&self) -> Vec<u8> {
@@ -173,7 +158,6 @@ impl Write for Stream {
 
 impl Drop for Stream {
     fn drop(&mut self) {
-        debug!("dropping stream: {:?}", self);
     }
 }
 
@@ -181,7 +165,7 @@ pub(crate) fn connect_http(unit: &Unit, hostname: &str) -> Result<Stream, Error>
     //
     let port = unit.url.port().unwrap_or(80);
 
-    connect_host(unit, hostname, port).map(Stream::from_tcp_stream)
+    connect_host(hostname, port).map(Stream::from_tcp_stream)
 }
 #[cfg(feature = "tls")]
 use once_cell::sync::Lazy;
@@ -221,7 +205,7 @@ pub(crate) fn connect_https(unit: &Unit, hostname: &str) -> Result<Stream, Error
         .as_ref()
         .map(|c| c.0.clone())
         .unwrap_or_else(|| TLS_CONF.clone());
-    let mut sock = connect_host(unit, hostname, port)?;
+    let mut sock = connect_host(hostname, port)?;
     let mut sess = rustls::ClientConnection::new(
         tls_conf,
         rustls::ServerName::try_from(hostname).map_err(|_e| ErrorKind::Dns.new())?,
@@ -236,23 +220,58 @@ pub(crate) fn connect_https(unit: &Unit, hostname: &str) -> Result<Stream, Error
     Ok(Stream::from_tls_stream(stream))
 }
 
-pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<TcpStream, Error> {
+
+fn to_socket_addrs(netloc: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
+    let mut dmsg = Builder::new_query(12352, true);
+    dmsg.add_question(netloc, false, QueryType::A, QueryClass::IN);
+    let dmsg = dmsg.build().unwrap();
+
+    let socket = UdpSocket::bind("127.0.0.1:0")?;
+
+    // Receives a single datagram message on the socket. If `buf` is too small to hold
+    // the message, it will be cut off.
+    let mut buf = [0; 512];
+    let _ = socket.send_to(&dmsg, "127.0.0.1:53")?;
+
+    let (amt, _sock) = socket.recv_from(&mut buf)?;
+    let msg = Packet::parse(&mut buf[..amt]).unwrap();
+    println!("MSG {:?} - ", msg);
+    //std::process::exit(-1);
+    let socks = msg.answers.iter().filter_map(|ans| {
+        match ans.data {
+            A(ipv4) => {
+                let addr = ipv4.0;
+                Some(SocketAddr::new(std::net::IpAddr::V4(addr), port))
+            },
+            _ => None,
+        }
+    })
+    .collect();
+    Ok(socks)
+}
+
+pub(crate) fn connect_host(hostname: &str, port: u16) -> Result<TcpStream, Error> {
     let netloc = (hostname, port);
     //println!("Netloc {:?}", netloc);
 
     // TODO: Find a way to apply deadline to DNS lookup.
-    let sock_addrs = netloc.to_socket_addrs()?;
+    let sock_addrs = to_socket_addrs(hostname, port)?;
+    //let sock_addrs = netloc.to_socket_addrs()?;
 
     let mut any_err = None;
     let mut any_stream = None;
     // Find the first sock_addr that accepts a connection
     for sock_addr in sock_addrs {
         // ensure connect timeout or overall timeout aren't yet hit.
-        debug!("connecting to {:?} at {}", netloc, &sock_addr);
+        println!("connecting to {:?} at {}", netloc, &sock_addr);
 
         // connect_timeout uses non-blocking connect which runs a large number of poll syscalls
         //let stream = TcpStream::connect_timeout(&sock_addr, timeout);
+        let start = Instant::now();
         let stream = TcpStream::connect(sock_addr);
+        let elapsed = start.elapsed();
+        // Debug format
+        println!("Connect time: {:?}", elapsed);
 
         if let Ok(stream) = stream {
             any_stream = Some(stream);
@@ -270,10 +289,6 @@ pub(crate) fn connect_host(unit: &Unit, hostname: &str, port: u16) -> Result<Tcp
         return Err(ErrorKind::Dns.msg(&format!("No ip address for {}", hostname)));
         //panic!("shouldn't happen: failed to connect to all IPs, but no error");
     };
-
-    let deadline = time_until_deadline(unit.deadline)?;
-    stream.set_read_timeout(Some(deadline))?;
-    stream.set_write_timeout(Some(deadline))?;
 
     Ok(stream)
 }

@@ -238,10 +238,7 @@ impl Response {
 
         let stream = self.stream;
         let unit = self.unit;
-            let result = time_until_deadline(unit.deadline)
-                .and_then(|timeout|{
-                    stream.set_read_timeout(timeout)
-                });
+            let result = time_until_deadline(unit.deadline);
             if let Err(e) = result {
                 return (Box::new(ErrorReader(e)) as Box<dyn Read + Send>, self.carryover);
             }
