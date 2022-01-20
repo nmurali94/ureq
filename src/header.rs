@@ -9,17 +9,16 @@ const MAX_HEADER_COUNT: usize = 128;
 type HeaderLineVec = arrayvec::ArrayVec<u8, MAX_HEADER_SIZE>;
 type HeaderName = arrayvec::ArrayString<128>;
 type HeaderValue = arrayvec::ArrayVec<u8, 896>;
-type BufVec = arrayvec::ArrayVec<u8, 4096>;
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
-pub struct Headers(HashMap<HeaderName, HeaderValue>);
+pub struct Headers(BTreeMap<HeaderName, HeaderValue>);
 
-impl TryFrom<BufVec> for Headers {
+impl <const N: usize> TryFrom<arrayvec::ArrayVec<u8, N>> for Headers {
     type Error = Error;
-    fn try_from(v: BufVec) -> Result<Self, Error> {
+    fn try_from(v: arrayvec::ArrayVec<u8, N>) -> Result<Self, Error> {
         let mut start = 0;
-        let mut map = HashMap::new();
+        let mut map = BTreeMap::new();
         for n in memchr::memchr_iter(b'\n', &v) {
             let end = if v[n-1] == b'\r' {
                 n-1

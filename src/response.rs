@@ -50,8 +50,8 @@ pub const DEFAULT_CHARACTER_SET: &str = "utf-8";
 
 type StatusVec = arrayvec::ArrayVec<u8, 32>;
 //type HistoryVec = arrayvec::ArrayVec<Url, 8>;
-type BufVec = arrayvec::ArrayVec<u8, 4096>;
-type CarryOver = arrayvec::ArrayVec<u8, 4096>;
+type BufVec = arrayvec::ArrayVec<u8, 8192>;
+type CarryOver = arrayvec::ArrayVec<u8, 8192>;
 
 pub struct Response {
     status_line: StatusVec,
@@ -252,138 +252,6 @@ impl Response {
         }
     }
 
-    /// Turn this response into a String of the response body. By default uses `utf-8`,
-    /// but can work with charset, see below.
-    ///
-    /// This is potentially memory inefficient for large bodies since the
-    /// implementation first reads the reader to end into a `Vec<u8>` and then
-    /// attempts to decode it using the charset.
-    ///
-    /// If the response is larger than 10 megabytes, this will return an error.
-    ///
-    /// Example:
-    ///
-    /// ```
-    /// # fn main() -> Result<(), ureq::Error> {
-    /// # ureq::is_test(true);
-    /// let text = ureq::get("http://httpbin.org/get/success")
-    ///     .call()?
-    ///     .into_string()?;
-    ///
-    /// assert!(text.contains("success"));
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// ## Charset support
-    ///
-    /// If you enable feature `ureq = { version = "*", features = ["charset"] }`, into_string()
-    /// attempts to respect the character encoding of the `Content-Type` header. If there is no
-    /// Content-Type header, or the Content-Type header does not specify a charset, into_string()
-    /// uses `utf-8`.
-    ///
-    /// I.e. `Content-Length: text/plain; charset=iso-8859-1` would be decoded in latin-1.
-    ///
-    /*
-    pub fn into_string(self) -> io::Result<String> {
-        #[cfg(feature = "charset")]
-        let encoding = Encoding::for_label(self.charset().as_bytes())
-            .or_else(|| Encoding::for_label(DEFAULT_CHARACTER_SET.as_bytes()))
-            .unwrap();
-
-        let mut buf: Vec<u8> = vec![];
-        self.into_reader()
-            .take((INTO_STRING_LIMIT + 1) as u64)
-            .read_to_end(&mut buf)?;
-        if buf.len() > INTO_STRING_LIMIT {
-            return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "response too big for into_string",
-                    ));
-        }
-
-        #[cfg(feature = "charset")]
-        {
-            let (text, _, _) = encoding.decode(&buf);
-            Ok(text.into_owned())
-        }
-        #[cfg(not(feature = "charset"))]
-        {
-            Ok(String::from_utf8_lossy(&buf).to_string())
-        }
-    }
-    */
-
-    /// Read the body of this response into a serde_json::Value, or any other type that
-    /// implements the [serde::Deserialize] trait.
-    ///
-    /// You must use either a type annotation as shown below (`message: Message`), or the
-    /// [turbofish operator] (`::<Type>`) so Rust knows what type you are trying to read.
-    ///
-    /// [turbofish operator]: https://matematikaadit.github.io/posts/rust-turbofish.html
-    ///
-    /// Requires feature `ureq = { version = "*", features = ["json"] }`
-    ///
-    /// Example:
-    ///
-    /// ```
-    /// # fn main() -> Result<(), ureq::Error> {
-    /// # ureq::is_test(true);
-    /// use serde::{Deserialize, de::DeserializeOwned};
-    ///
-    /// #[derive(Deserialize)]
-    /// struct Message {
-    ///     hello: String,
-    /// }
-    ///
-    /// let message: Message =
-    ///     ureq::get("http://example.com/hello_world.json")
-    ///         .call()?
-    ///         .into_json()?;
-    ///
-    /// assert_eq!(message.hello, "world");
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// Or, if you don't want to define a struct to read your JSON into, you can
-    /// use the convenient `serde_json::Value` type to parse arbitrary or unknown
-    /// JSON.
-    ///
-    /// ```
-    /// # fn main() -> Result<(), ureq::Error> {
-    /// # ureq::is_test(true);
-    /// let json: serde_json::Value = ureq::get("http://example.com/hello_world.json")
-    ///     .call()?
-    ///     .into_json()?;
-    ///
-    /// assert_eq!(json["hello"], "world");
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[cfg(feature = "json")]
-    pub fn into_json<T: DeserializeOwned>(self) -> io::Result<T> {
-        use crate::stream::io_err_timeout;
-        use std::error::Error;
-
-        let reader = self.into_reader();
-        serde_json::from_reader(reader).map_err(|e| {
-            // This is to unify TimedOut io::Error in the API.
-            // We make a clone of the original error since serde_json::Error doesn't
-            // let us get the wrapped error instance back.
-            if let Some(ioe) = e.source().and_then(|s| s.downcast_ref::<io::Error>()) {
-                if ioe.kind() == io::ErrorKind::TimedOut {
-                    return io_err_timeout(ioe.to_string());
-                }
-            }
-
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Failed to read JSON: {}", e),
-                )
-        })
-    }
-
     /// Create a response from a Read trait impl.
     ///
     /// This is hopefully useful for unit tests.
@@ -408,7 +276,7 @@ impl Response {
 
         let i = memchr::memchr(b'\n', &headers);
         if i.is_none() {
-            return Err(ErrorKind::BadStatus.msg(""));
+            return Err(ErrorKind::BadStatus.msg("Missing Status Line"));
         }
         let i = i.unwrap();
         let status_line: StatusVec = headers.drain(..i+1).collect();
@@ -423,30 +291,12 @@ impl Response {
             unit: unit,
             stream: stream,
             carryover: carryover,
-            //history: HistoryVec::new(),
         })
     }
 
     pub(crate) fn do_from_request(unit: Unit, stream: Stream) -> Result<Response, Error> {
         let resp = Response::do_from_stream(stream, unit)?;
         Ok(resp)
-    }
-
-    #[cfg(test)]
-    pub fn to_write_vec(self) -> Vec<u8> {
-        self.stream.to_write_vec()
-    }
-
-    #[cfg(test)]
-    pub fn set_url(&mut self, url: Url) {
-        self.url = Some(url);
-    }
-
-    #[cfg(test)]
-    pub fn history_from_previous(&mut self, previous: Response) {
-        let previous_url = previous.get_url().to_string();
-        self.history = previous.history;
-        self.history.push(previous_url);
     }
 }
 
@@ -479,36 +329,11 @@ fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, u16, &str), Error> {
     }
 }
 
-/*
-impl FromStr for Response {
-    type Err = Error;
-    /// Parse a response from a string.
-    ///
-    /// Example:
-    /// ```
-    /// let s = "HTTP/1.1 200 OK\r\n\
-    ///     X-Forwarded-For: 1.2.3.4\r\n\
-    ///     Content-Type: text/plain\r\n\
-    ///     \r\n\
-    ///     Hello World!!!";
-    /// let resp = s.parse::<ureq::Response>().unwrap();
-    /// assert!(resp.has("X-Forwarded-For"));
-    /// let body = resp.into_string().unwrap();
-    /// assert_eq!(body, "Hello World!!!");
-    /// ```
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let stream = Stream::from_vec(s.as_bytes().to_owned());
-        Self::do_from_stream(stream, None)
-    }
-}
-*/
-
 fn read_status_and_headers(reader: &mut impl Read) -> io::Result<(BufVec, CarryOver)> {
-    let mut buf = BufVec::new();
-    let mut buffer = [0u8; 4096];
+    let mut buf = BufVec::new_const();
+    let mut buffer = [0u8; 8192];
 
     let limited_reader = reader;
-    //let mut limited_reader = reader.take(((MAX_HEADER_SIZE + 1) * MAX_HEADER_COUNT) as u64);
 
     let mut carry = 0;
 
@@ -543,7 +368,7 @@ fn read_status_and_headers(reader: &mut impl Read) -> io::Result<(BufVec, CarryO
 
     //println!("Header segment size: {}", std::str::from_utf8(&buffer).unwrap());
 
-    let mut carryover = CarryOver::new();
+    let mut carryover = CarryOver::new_const();
     let _ = carryover.try_extend_from_slice(&buffer[..carry]).unwrap();
     Ok((buf.into(), carryover))
 }
@@ -632,252 +457,3 @@ impl Read for ErrorReader {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::io::Cursor;
-
-    use super::*;
-
-    #[test]
-    fn short_read() {
-        use std::io::Cursor;
-        let mut lr = LimitedRead::new(Cursor::new(vec![b'a'; 3]), 10);
-        let mut buf = vec![0; 1000];
-        let result = lr.read_to_end(&mut buf);
-        assert!(result.err().unwrap().kind() == io::ErrorKind::UnexpectedEof);
-    }
-
-    #[test]
-    fn content_type_without_charset() {
-        let s = "HTTP/1.1 200 OK\r\n\
-                 Content-Type: application/json\r\n\
-                 \r\n\
-                 OK";
-        let resp = s.parse::<Response>().unwrap();
-        assert_eq!("application/json", resp.content_type());
-    }
-
-    #[test]
-    fn content_type_without_cr() {
-        let s = "HTTP/1.1 200 OK\r\n\
-                 Content-Type: application/json\n\
-                 \r\n\
-                 OK";
-        let resp = s.parse::<Response>().unwrap();
-        assert_eq!("application/json", resp.content_type());
-    }
-
-    #[test]
-    fn content_type_with_charset() {
-        let s = "HTTP/1.1 200 OK\r\n\
-                 Content-Type: application/json; charset=iso-8859-4\r\n\
-                 \r\n\
-                 OK";
-        let resp = s.parse::<Response>().unwrap();
-        assert_eq!("application/json", resp.content_type());
-    }
-
-    #[test]
-    fn content_type_default() {
-        let s = "HTTP/1.1 200 OK\r\n\r\nOK";
-        let resp = s.parse::<Response>().unwrap();
-        assert_eq!("text/plain", resp.content_type());
-    }
-
-    #[test]
-    fn charset() {
-        let s = "HTTP/1.1 200 OK\r\n\
-                 Content-Type: application/json; charset=iso-8859-4\r\n\
-                 \r\n\
-                 OK";
-        let resp = s.parse::<Response>().unwrap();
-        assert_eq!("iso-8859-4", resp.charset());
-    }
-
-    #[test]
-    fn charset_default() {
-        let s = "HTTP/1.1 200 OK\r\n\
-                 Content-Type: application/json\r\n\
-                 \r\n\
-                 OK";
-        let resp = s.parse::<Response>().unwrap();
-        assert_eq!("utf-8", resp.charset());
-    }
-
-    #[test]
-    fn chunked_transfer() {
-        let s = "HTTP/1.1 200 OK\r\n\
-                 Transfer-Encoding: Chunked\r\n\
-                 \r\n\
-                 3\r\n\
-                 hel\r\n\
-                 b\r\n\
-                 lo world!!!\r\n\
-                 0\r\n\
-                 \r\n";
-        let resp = s.parse::<Response>().unwrap();
-        assert_eq!("hello world!!!", resp.into_string().unwrap());
-    }
-
-    #[test]
-    fn into_string_large() {
-        const LEN: usize = INTO_STRING_LIMIT + 1;
-        let s = format!(
-            "HTTP/1.1 200 OK\r\n\
-                 Content-Length: {}\r\n
-                 \r\n
-                 {}",
-                 LEN,
-                 "A".repeat(LEN),
-                 );
-        let result = s.parse::<Response>().unwrap();
-        let err = result
-            .into_string()
-            .expect_err("didn't error with too-long body");
-        assert_eq!(err.to_string(), "response too big for into_string");
-        assert_eq!(err.kind(), io::ErrorKind::Other);
-    }
-
-    #[test]
-    #[cfg(feature = "json")]
-    fn parse_simple_json() {
-        let s = "HTTP/1.1 200 OK\r\n\
-             \r\n\
-             {\"hello\":\"world\"}";
-        let resp = s.parse::<Response>().unwrap();
-        let v: serde_json::Value = resp.into_json().unwrap();
-        let compare = "{\"hello\":\"world\"}"
-            .parse::<serde_json::Value>()
-            .unwrap();
-        assert_eq!(v, compare);
-    }
-
-    #[test]
-    #[cfg(feature = "json")]
-    fn parse_deserialize_json() {
-        use serde::Deserialize;
-
-        #[derive(Deserialize)]
-        struct Hello {
-            hello: String,
-        }
-
-        let s = "HTTP/1.1 200 OK\r\n\
-             \r\n\
-             {\"hello\":\"world\"}";
-        let resp = s.parse::<Response>().unwrap();
-        let v: Hello = resp.into_json::<Hello>().unwrap();
-        assert_eq!(v.hello, "world");
-    }
-
-    #[test]
-    fn parse_borked_header() {
-        let s = "HTTP/1.1 BORKED\r\n".to_string();
-        let err = s.parse::<Response>().unwrap_err();
-        assert_eq!(err.kind(), BadStatus);
-    }
-
-    #[test]
-    fn parse_header_without_reason() {
-        let s = "HTTP/1.1 302\r\n\r\n".to_string();
-        let resp = s.parse::<Response>().unwrap();
-        assert_eq!(resp.status_text(), "");
-    }
-
-    #[test]
-    fn read_next_line_large() {
-        const LEN: usize = MAX_HEADER_SIZE + 1;
-        let s = format!("Long-Header: {}\r\n", "A".repeat(LEN),);
-        let mut cursor = Cursor::new(s);
-        let result = read_next_line(&mut cursor, "some context");
-        let err = result.expect_err("did not error on too-large header");
-        assert_eq!(err.kind(), io::ErrorKind::Other);
-        assert_eq!(
-            err.to_string(),
-            format!("header field longer than {} bytes", MAX_HEADER_SIZE)
-            );
-    }
-
-    #[test]
-    fn too_many_headers() {
-        const LEN: usize = MAX_HEADER_COUNT + 1;
-        let s = format!(
-            "HTTP/1.1 200 OK\r\n\
-                 {}
-                 \r\n
-                 hi",
-                 "Header: value\r\n".repeat(LEN),
-                 );
-        let err = s
-            .parse::<Response>()
-            .expect_err("did not error on too many headers");
-        assert_eq!(err.kind(), ErrorKind::BadHeader);
-        assert_eq!(
-            err.to_string(),
-            format!(
-                "Bad Header: more than {} header fields in response",
-                MAX_HEADER_COUNT
-                )
-            );
-    }
-
-    #[test]
-    #[cfg(feature = "charset")]
-    fn read_next_line_non_ascii_reason() {
-        let (cow, _, _) =
-            encoding_rs::WINDOWS_1252.encode("HTTP/1.1 302 Déplacé Temporairement\r\n");
-        let bytes = cow.to_vec();
-        let mut reader = io::BufReader::new(io::Cursor::new(bytes));
-        let r = read_next_line(&mut reader, "test status line");
-        let h = r.unwrap();
-        assert_eq!(h.to_string(), "HTTP/1.1 302 D�plac� Temporairement");
-    }
-
-    #[test]
-    #[cfg(feature = "charset")]
-    fn parse_header_with_non_utf8() {
-        let (cow, _, _) = encoding_rs::WINDOWS_1252.encode(
-            "HTTP/1.1 200 OK\r\n\
-            x-geo-header: gött mos!\r\n\
-            \r\n\
-            OK",
-            );
-        let v = cow.to_vec();
-        let s = Stream::from_vec(v);
-        let resp = Response::do_from_stream(s.into(), None).unwrap();
-        assert_eq!(resp.status(), 200);
-        assert_eq!(resp.header("x-geo-header"), None);
-    }
-
-    #[test]
-    fn history() {
-        let mut response0 = Response::new(302, "Found", "").unwrap();
-        response0.set_url("http://1.example.com/".parse().unwrap());
-        assert!(response0.history.is_empty());
-
-        let mut response1 = Response::new(302, "Found", "").unwrap();
-        response1.set_url("http://2.example.com/".parse().unwrap());
-        response1.history_from_previous(response0);
-
-        let mut response2 = Response::new(404, "NotFound", "").unwrap();
-        response2.set_url("http://2.example.com/".parse().unwrap());
-        response2.history_from_previous(response1);
-
-        let hist: Vec<&str> = response2.history.iter().map(|r| &**r).collect();
-        assert_eq!(hist, ["http://1.example.com/", "http://2.example.com/"])
-    }
-
-    #[test]
-    fn response_implements_send_and_sync() {
-        let _response: Box<dyn Send> = Box::new(Response::new(302, "Found", "").unwrap());
-        let _response: Box<dyn Sync> = Box::new(Response::new(302, "Found", "").unwrap());
-    }
-
-    #[test]
-    fn ensure_response_size() {
-        // This is platform dependent, so we can't be too strict or precise.
-        let size = std::mem::size_of::<Response>();
-        println!("Response size: {}", size);
-        assert!(size < 400); // 200 on Macbook M1
-    }
-}

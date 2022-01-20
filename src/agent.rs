@@ -16,7 +16,6 @@ pub struct AgentBuilder {
 #[derive(Debug, Clone)]
 pub(crate) struct AgentConfig {
     pub timeout_connect: Duration,
-    pub redirects: u32,
     pub user_agent: String,
     #[cfg(feature = "tls")]
     pub tls_config: Option<TLSClientConfig>,
@@ -70,7 +69,6 @@ impl AgentBuilder {
         AgentBuilder {
             config: AgentConfig {
                 timeout_connect: Duration::from_secs(30),
-                redirects: 5,
                 user_agent: "ureq/2.3.1".into(),
                 #[cfg(feature = "tls")]
                 tls_config: None,

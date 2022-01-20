@@ -1,15 +1,11 @@
 use std::{fmt};
 
-//use url::{Url};
 use crate::url::{Url};
 
 use crate::header::{Header};
 use crate::unit::{self, Unit};
 use crate::Response;
 use crate::{agent::Agent, error::Error, error::ErrorKind};
-
-#[cfg(feature = "json")]
-use super::SerdeValue;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -97,43 +93,3 @@ impl Request {
 }
 
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn request_implements_send_and_sync() {
-        let _request: Box<dyn Send> = Box::new(Request::new(
-            Agent::new(),
-            "GET".to_string(),
-            "https://example.com/".to_string(),
-        ));
-        let _request: Box<dyn Sync> = Box::new(Request::new(
-            Agent::new(),
-            "GET".to_string(),
-            "https://example.com/".to_string(),
-        ));
-    }
-
-    #[test]
-    fn send_byte_slice() {
-        let bytes = vec![1, 2, 3];
-        crate::agent()
-            .post("http://example.com")
-            .send(&bytes[1..2])
-            .ok();
-    }
-
-    #[test]
-    fn disallow_empty_host() {
-        let req = crate::agent().get("file:///some/path");
-
-        // Both request_url and call() must surface the same error.
-        assert_eq!(
-            req.request_url().unwrap_err().kind(),
-            crate::ErrorKind::InvalidUrl
-        );
-
-        assert_eq!(req.call().unwrap_err().kind(), crate::ErrorKind::InvalidUrl);
-    }
-}

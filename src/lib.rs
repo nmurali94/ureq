@@ -305,9 +305,6 @@ pub use crate::response::Response;
 #[cfg(feature = "json")]
 pub use serde_json::{to_value as serde_to_value, Map as SerdeMap, Value as SerdeValue};
 
-use once_cell::sync::Lazy;
-use std::sync::atomic::{AtomicBool, Ordering};
-
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Creates an [AgentBuilder].
@@ -323,13 +320,6 @@ pub fn builder() -> AgentBuilder {
 // We also can't use #[cfg(doctest)] to do this, because cfg(doctest) is only set
 // when collecting doctests, not when building the crate.
 #[doc(hidden)]
-pub fn is_test(is: bool) -> bool {
-    static IS_TEST: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
-    if is {
-        IS_TEST.store(true, Ordering::SeqCst);
-    }
-    IS_TEST.load(Ordering::SeqCst)
-}
 
 /// Agents are used to hold configuration and keep state between requests.
 pub fn agent() -> Agent {

@@ -25,7 +25,6 @@ pub(crate) enum Stream {
     Http(TcpStream),
     #[cfg(feature = "tls")]
     Https(rustls::StreamOwned<rustls::ClientConnection, TcpStream>),
-    Test(Box<dyn Read + Send + Sync>, Vec<u8>),
 }
 
 // DeadlineStream wraps a stream such that read() will return an error
@@ -54,7 +53,6 @@ impl fmt::Debug for Stream {
             Stream::Http(tcpstream) => write!(f, "{:?}", tcpstream),
             #[cfg(feature = "tls")]
             Stream::Https(tlsstream) => write!(f, "{:?}", tlsstream.get_ref()),
-            Stream::Test(_, _) => write!(f, "Stream(Test)"),
         }
     }
 }
@@ -77,15 +75,6 @@ impl Stream {
             Stream::Https(t),
         )
     }
-
-
-    #[cfg(test)]
-    pub fn to_write_vec(&self) -> Vec<u8> {
-        match &self.get_ref() {
-            Stream::Test(_, writer) => writer.clone(),
-            _ => panic!("to_write_vec on non Test stream"),
-        }
-    }
 }
 
 impl Read for Stream {
@@ -94,7 +83,6 @@ impl Read for Stream {
             Stream::Http(sock) => sock.read(buf),
             #[cfg(feature = "tls")]
             Stream::Https(stream) => read_https(stream, buf),
-            Stream::Test(reader, _) => reader.read(buf),
         }
     }
 }
@@ -143,7 +131,6 @@ impl Write for Stream {
             Stream::Http(sock) => sock.write(buf),
             #[cfg(feature = "tls")]
             Stream::Https(stream) => stream.write(buf),
-            Stream::Test(_, writer) => writer.write(buf),
         }
     }
     fn flush(&mut self) -> io::Result<()> {
@@ -151,13 +138,7 @@ impl Write for Stream {
             Stream::Http(sock) => sock.flush(),
             #[cfg(feature = "tls")]
             Stream::Https(stream) => stream.flush(),
-            Stream::Test(_, writer) => writer.flush(),
         }
-    }
-}
-
-impl Drop for Stream {
-    fn drop(&mut self) {
     }
 }
 
@@ -224,18 +205,18 @@ pub(crate) fn connect_https(unit: &Unit, hostname: &str) -> Result<Stream, Error
 fn to_socket_addrs(netloc: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
     let mut dmsg = Builder::new_query(12352, true);
     dmsg.add_question(netloc, false, QueryType::A, QueryClass::IN);
-    let dmsg = dmsg.build().unwrap();
+    let dmsg = dmsg.build().expect("Bad DNS Query");
 
-    let socket = UdpSocket::bind("127.0.0.1:0")?;
+    let socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind to socket");
 
     // Receives a single datagram message on the socket. If `buf` is too small to hold
     // the message, it will be cut off.
     let mut buf = [0; 512];
-    let _ = socket.send_to(&dmsg, "127.0.0.1:53")?;
+    let _ = socket.send_to(&dmsg, "127.0.0.1:53").expect("Failed to send to socket");
 
-    let (amt, _sock) = socket.recv_from(&mut buf)?;
-    let msg = Packet::parse(&mut buf[..amt]).unwrap();
-    println!("MSG {:?} - ", msg);
+    let (amt, _sock) = socket.recv_from(&mut buf).expect("Failed to recv frmo socket");
+    let msg = Packet::parse(&mut buf[..amt]).expect("Bad DNS response");
+    //println!("Answer - {:?} ", msg);
     //std::process::exit(-1);
     let socks = msg.answers.iter().filter_map(|ans| {
         match ans.data {
@@ -263,7 +244,7 @@ pub(crate) fn connect_host(hostname: &str, port: u16) -> Result<TcpStream, Error
     // Find the first sock_addr that accepts a connection
     for sock_addr in sock_addrs {
         // ensure connect timeout or overall timeout aren't yet hit.
-        println!("connecting to {:?} at {}", netloc, &sock_addr);
+        //println!("connecting to {:?} at {}", netloc, &sock_addr);
 
         // connect_timeout uses non-blocking connect which runs a large number of poll syscalls
         //let stream = TcpStream::connect_timeout(&sock_addr, timeout);
@@ -271,7 +252,7 @@ pub(crate) fn connect_host(hostname: &str, port: u16) -> Result<TcpStream, Error
         let stream = TcpStream::connect(sock_addr);
         let elapsed = start.elapsed();
         // Debug format
-        println!("Connect time: {:?}", elapsed);
+        //println!("Connect time: {:?}", elapsed);
 
         if let Ok(stream) = stream {
             any_stream = Some(stream);
@@ -291,12 +272,6 @@ pub(crate) fn connect_host(hostname: &str, port: u16) -> Result<TcpStream, Error
     };
 
     Ok(stream)
-}
-
-#[cfg(test)]
-pub(crate) fn connect_test(unit: &Unit) -> Result<Stream, Error> {
-    use crate::test;
-    test::resolve_handler(unit)
 }
 
 #[cfg(not(test))]
