@@ -279,27 +279,24 @@ mod agent;
 mod body;
 mod error;
 mod header;
-mod pool;
-mod proxy;
+//mod pool;
+//mod proxy;
 mod request;
 mod response;
 mod stream;
 mod unit;
 mod url;
 
-#[cfg(feature = "json")]
-pub use serde_json::json;
-
 #[cfg(test)]
 mod test;
 #[doc(hidden)]
-mod testserver;
+//mod testserver;
 
 pub use crate::agent::Agent;
 pub use crate::agent::AgentBuilder;
 pub use crate::error::{Error, ErrorKind, OrAnyStatus, Transport};
 pub use crate::header::Header;
-pub use crate::request::{Request};
+pub use crate::request::Request;
 pub use crate::response::Response;
 
 #[cfg(feature = "json")]

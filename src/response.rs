@@ -12,12 +12,6 @@ use crate::{ErrorKind};
 
 use std::convert::TryFrom;
 
-#[cfg(feature = "json")]
-use serde::de::DeserializeOwned;
-
-#[cfg(feature = "charset")]
-use encoding_rs::Encoding;
-
 pub const DEFAULT_CONTENT_TYPE: &str = "text/plain";
 pub const DEFAULT_CHARACTER_SET: &str = "utf-8";
 
@@ -122,7 +116,7 @@ impl Response {
     pub fn header(&self, name: &str) -> Option<&str> {
         self.headers.header(name)
             .and_then(|s| std::str::from_utf8(s).ok())
-            .and_then(|s| Some(s.trim()))
+            .map(|s| s.trim())
     }
 
     /// The content type part of the "Content-Type" header without
@@ -288,9 +282,9 @@ impl Response {
         Ok(Response {
             status_line,
             headers,
-            unit: unit,
-            stream: stream,
-            carryover: carryover,
+            unit,
+            stream,
+            carryover,
         })
     }
 
@@ -306,13 +300,13 @@ fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, u16, &str), Error> {
         return Err(BadStatus.msg("Status line isn't formatted correctly"));
     }
     if s.iter().any(|c| !c.is_ascii()) {
-        return Err(BadStatus.msg("Status line not ASCII"));
+        Err(BadStatus.msg("Status line not ASCII"))
     }
     else if b"HTTP/1.1" != &s[..8] {
-        return Err(BadStatus.msg("HTTP version not formatted correctly"));
+        Err(BadStatus.msg("HTTP version not formatted correctly"))
     }
     else if s[9..12].iter().any(|c| !c.is_ascii_digit()) {
-        return Err(BadStatus.msg("HTTP status code must be a 3 digit number"));
+        Err(BadStatus.msg("HTTP status code must be a 3 digit number"))
     }
     else {
         let n = std::str::from_utf8(&s[9..12]).unwrap();
@@ -370,7 +364,7 @@ fn read_status_and_headers(reader: &mut impl Read) -> io::Result<(BufVec, CarryO
 
     let mut carryover = CarryOver::new_const();
     let _ = carryover.try_extend_from_slice(&buffer[..carry]).unwrap();
-    Ok((buf.into(), carryover))
+    Ok((buf, carryover))
 }
 
 /// Limits a `Read` to a content size (as set by a "Content-Length" header).

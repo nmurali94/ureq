@@ -62,7 +62,6 @@ impl Stream {
         stream
     }
 
-
     fn from_tcp_stream(t: TcpStream) -> Stream {
         Stream::logged_create(
             Stream::Http(t),
@@ -203,7 +202,7 @@ pub(crate) fn connect_https(unit: &Unit, hostname: &str) -> Result<Stream, Error
 
 
 fn to_socket_addrs(netloc: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
-    let mut dmsg = Builder::new_query(12352, true);
+    let mut dmsg = Builder::new_query(13, true);
     dmsg.add_question(netloc, false, QueryType::A, QueryClass::IN);
     let dmsg = dmsg.build().expect("Bad DNS Query");
 
@@ -215,7 +214,7 @@ fn to_socket_addrs(netloc: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
     let _ = socket.send_to(&dmsg, "127.0.0.1:53").expect("Failed to send to socket");
 
     let (amt, _sock) = socket.recv_from(&mut buf).expect("Failed to recv frmo socket");
-    let msg = Packet::parse(&mut buf[..amt]).expect("Bad DNS response");
+    let msg = Packet::parse(&buf[..amt]).expect("Bad DNS response");
     //println!("Answer - {:?} ", msg);
     //std::process::exit(-1);
     let socks = msg.answers.iter().filter_map(|ans| {
@@ -232,7 +231,6 @@ fn to_socket_addrs(netloc: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
 }
 
 pub(crate) fn connect_host(hostname: &str, port: u16) -> Result<TcpStream, Error> {
-    let netloc = (hostname, port);
     //println!("Netloc {:?}", netloc);
 
     // TODO: Find a way to apply deadline to DNS lookup.
@@ -248,9 +246,7 @@ pub(crate) fn connect_host(hostname: &str, port: u16) -> Result<TcpStream, Error
 
         // connect_timeout uses non-blocking connect which runs a large number of poll syscalls
         //let stream = TcpStream::connect_timeout(&sock_addr, timeout);
-        let start = Instant::now();
         let stream = TcpStream::connect(sock_addr);
-        let elapsed = start.elapsed();
         // Debug format
         //println!("Connect time: {:?}", elapsed);
 
@@ -274,14 +270,3 @@ pub(crate) fn connect_host(hostname: &str, port: u16) -> Result<TcpStream, Error
     Ok(stream)
 }
 
-#[cfg(not(test))]
-pub(crate) fn connect_test(unit: &Unit) -> Result<Stream, Error> {
-    Err(ErrorKind::UnknownScheme.msg(&format!("unknown scheme '{}'", unit.url.scheme())))
-}
-
-#[cfg(not(feature = "tls"))]
-pub(crate) fn connect_https(unit: &Unit, _hostname: &str) -> Result<Stream, Error> {
-    Err(ErrorKind::UnknownScheme
-        .msg("URL has 'https:' scheme but ureq was build without HTTP support")
-        .url(unit.url.clone()))
-}

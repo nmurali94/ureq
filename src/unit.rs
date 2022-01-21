@@ -10,13 +10,12 @@ use crate::error::{Error, ErrorKind};
 use crate::header;
 use crate::header::{Header};
 use crate::response::Response;
-use crate::stream::{self, connect_test, Stream};
+use crate::stream::{self, Stream};
 use crate::Agent;
 
 /// A Unit is fully-built Request, ready to execute.
 ///
 /// *Internal API*
-#[derive(Clone)]
 pub(crate) struct Unit {
     pub agent: Agent,
     pub method: String,
@@ -54,18 +53,6 @@ impl Unit {
         self.method.eq_ignore_ascii_case("head")
     }
 
-    #[cfg(test)]
-    pub fn header(&self, name: &str) -> Option<&str> {
-        header::get_header(&self.headers, name)
-    }
-    #[cfg(test)]
-    pub fn has(&self, name: &str) -> bool {
-        header::has_header(&self.headers, name)
-    }
-    #[cfg(test)]
-    pub fn all(&self, name: &str) -> Vec<&str> {
-        header::get_all_headers(&self.headers, name)
-    }
 }
 
 /// Perform a connection. Follows redirects.
@@ -73,7 +60,7 @@ pub(crate) fn connect(
     unit: Unit,
 ) -> Result<Response, Error> {
     //let mut history = HistoryVec::new();
-        let resp = connect_inner(&unit, true)?;
+        let resp = connect_inner(unit, true)?;
 
         let (_version, status, _text) = resp.get_status_line()?;
         // handle redirects
@@ -86,7 +73,7 @@ pub(crate) fn connect(
 
 /// Perform a connection. Does not follow redirects.
 fn connect_inner(
-    unit: &Unit,
+    unit: Unit,
     empty_previous: bool,
 ) -> Result<Response, Error> {
     let host = unit
@@ -94,9 +81,9 @@ fn connect_inner(
         .host_str()
         ;
     // open socket
-    let mut stream = connect_socket(unit, host)?;
+    let mut stream = connect_socket(&unit, host)?;
     let mut buf_stream = BufWriter::with_capacity(256, &mut stream);
-    let send_result = send_prelude(unit, &mut buf_stream, !empty_previous);
+    let send_result = send_prelude(&unit, &mut buf_stream, !empty_previous);
 
 
     if let Err(err) = send_result {
@@ -106,7 +93,7 @@ fn connect_inner(
 
     // start reading the response to process cookies and redirects.
     drop(buf_stream);
-    let result = Response::do_from_request(unit.clone(), stream);
+    let result = Response::do_from_request(unit, stream);
 
     // https://tools.ietf.org/html/rfc7230#section-6.3.1
     // When an inbound connection is closed prematurely, a client MAY
@@ -130,13 +117,12 @@ fn connect_inner(
 /// Connect the socket, either by using the pool or grab a new one.
 fn connect_socket(unit: &Unit, hostname: &str) -> Result<Stream, Error> {
     match unit.url.scheme() {
-        "http" | "https" | "test" => (),
+        "http" | "https" => (),
         scheme => return Err(ErrorKind::UnknownScheme.msg(&format!("unknown scheme '{}'", scheme))),
     };
     let stream = match unit.url.scheme() {
         "http" => stream::connect_http(unit, hostname),
         "https" => stream::connect_https(unit, hostname),
-        "test" => connect_test(unit),
         scheme => Err(ErrorKind::UnknownScheme.msg(&format!("unknown scheme {}", scheme))),
     }?;
     Ok(stream)
@@ -161,12 +147,12 @@ fn send_prelude(unit: &Unit, stream: &mut BufWriter<&mut Stream>, redir: bool) -
     // host header if not set by user.
     if !header::has_header(&unit.headers, "host") {
         v.push(IoSlice::new(b"Host: "));
-        v.push(IoSlice::new(&unit.url.host_str().as_bytes()));
+        v.push(IoSlice::new(unit.url.host_str().as_bytes()));
         v.push(IoSlice::new(b"\r\n"));
     }
     if !header::has_header(&unit.headers, "user-agent") {
         v.push(IoSlice::new(b"User-Ager: "));
-        v.push(IoSlice::new(&unit.agent.config.user_agent.as_bytes()));
+        v.push(IoSlice::new(unit.agent.config.user_agent.as_bytes()));
         v.push(IoSlice::new(b"\r\n"));
     }
     if !header::has_header(&unit.headers, "accept") {

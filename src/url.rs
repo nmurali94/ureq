@@ -49,10 +49,10 @@ impl Url {
 
         let url = Url {
             serialization: s,
-            scheme: scheme,
-            host: host,
-            port: port,
-            path: path,
+            scheme,
+            host,
+            port,
+            path,
         };
 
         /*
