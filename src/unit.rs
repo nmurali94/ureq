@@ -1,7 +1,5 @@
 use std::io::{self, Write};
 use std::time;
-use std::convert::TryInto;
-use std::io::{BufWriter, IoSlice};
 
 //use url::Url;
 use crate::url::Url;
@@ -82,7 +80,7 @@ pub(crate) fn connect(
     unit: Unit,
 ) -> Result<Response, Error> {
     //let mut history = HistoryVec::new();
-        let resp = connect_inner(unit, true)?;
+        let resp = connect_inner(unit)?;
 
         let (_version, status, _text) = resp.get_status_line()?;
         // handle redirects
@@ -96,17 +94,12 @@ pub(crate) fn connect(
 /// Perform a connection. Does not follow redirects.
 fn connect_inner(
     unit: Unit,
-    empty_previous: bool,
 ) -> Result<Response, Error> {
-    let host = unit
-        .url
-        .host_str()
-        ;
     // open socket
-    let mut stream = connect_socket(&unit, host)?;
-    let mut buf_stream = BufWriter::with_capacity(256, &mut stream);
-    let send_result = send_prelude(&unit, &mut buf_stream, !empty_previous);
+    let mut stream = connect_socket(&unit)?;
 
+    //let mut buf_stream = BufWriter::with_capacity(256, &mut stream);
+    let send_result = send_prelude(&unit, &mut stream);
 
     if let Err(err) = send_result {
         // not a pooled connection, propagate the error.
@@ -114,7 +107,7 @@ fn connect_inner(
     }
 
     // start reading the response to process cookies and redirects.
-    drop(buf_stream);
+    //drop(buf_stream);
     let result = Response::do_from_request(unit, stream);
 
     // https://tools.ietf.org/html/rfc7230#section-6.3.1
@@ -137,14 +130,17 @@ fn connect_inner(
 }
 
 /// Connect the socket, either by using the pool or grab a new one.
-fn connect_socket(unit: &Unit, hostname: &str) -> Result<Stream, Error> {
+fn connect_sockets(units: &[GetUnits])  {
+}
+/// Connect the socket, either by using the pool or grab a new one.
+fn connect_socket(unit: &Unit) -> Result<Stream, Error> {
     match unit.url.scheme() {
         "http" | "https" => (),
         scheme => return Err(ErrorKind::UnknownScheme.msg(&format!("unknown scheme '{}'", scheme))),
     };
     let stream = match unit.url.scheme() {
-        "http" => stream::connect_http(unit, hostname),
-        "https" => stream::connect_https(unit, hostname),
+        "http" => stream::connect_http(unit),
+        "https" => stream::connect_https(unit),
         scheme => Err(ErrorKind::UnknownScheme.msg(&format!("unknown scheme {}", scheme))),
     }?;
     Ok(stream)
@@ -152,62 +148,35 @@ fn connect_socket(unit: &Unit, hostname: &str) -> Result<Stream, Error> {
 
 /// Send request line + headers (all up until the body).
 #[allow(clippy::write_with_newline)]
-fn send_prelude(unit: &Unit, stream: &mut BufWriter<&mut Stream>, redir: bool) -> io::Result<()> {
+fn send_prelude(unit: &Unit, stream: &mut Stream) -> io::Result<()> {
 
     // request line
-    let mut v = arrayvec::ArrayVec::<IoSlice, 64>::new();
+    let mut v = arrayvec::ArrayVec::<u8, 512>::new_const();
     
-    v.push(IoSlice::new(unit.method.as_bytes()));
-    v.push(IoSlice::new(b" "));
-    v.push(IoSlice::new(unit.url.path().as_bytes()));
-    if unit.url.query().is_some() {
-        v.push(IoSlice::new(b"?"));
-        v.push(IoSlice::new(unit.url.query().unwrap().as_bytes()));
-    }
-    v.push(IoSlice::new(b" HTTP/1.1\r\n"));
+    let _ = v.try_extend_from_slice(b"GET ");
+    let _ = v.try_extend_from_slice(unit.url.path().as_bytes());
+    let _ = v.try_extend_from_slice(b" HTTP/1.1\r\n");
 
     // host header if not set by user.
-    if !header::has_header(&unit.headers, "host") {
-        v.push(IoSlice::new(b"Host: "));
-        v.push(IoSlice::new(unit.url.host_str().as_bytes()));
-        v.push(IoSlice::new(b"\r\n"));
-    }
-    if !header::has_header(&unit.headers, "user-agent") {
-        v.push(IoSlice::new(b"User-Ager: "));
-        v.push(IoSlice::new(unit.agent.config.user_agent.as_bytes()));
-        v.push(IoSlice::new(b"\r\n"));
-    }
-    if !header::has_header(&unit.headers, "accept") {
-        v.push(IoSlice::new(b"Accept: text/plain\r\n"));
-    }
-    if !header::has_header(&unit.headers, "accept-encoding") {
-        v.push(IoSlice::new(b"Accept-Encoding: Identity\r\n"));
-    }
+    let _ = v.try_extend_from_slice(b"Host: ");
+    let _ = v.try_extend_from_slice(unit.url.host_str().as_bytes());
+    let _ = v.try_extend_from_slice(b"\r\n");
 
-    // other headers
-    for header in &unit.headers {
-        if !redir || !header.is_name("Authorization") {
-            if let Some(val) = header.value() {
-                    v.push(IoSlice::new(header.name().as_bytes()));
-                    v.push(IoSlice::new(b": "));
-                    v.push(IoSlice::new(val.as_bytes()));
-                    v.push(IoSlice::new(b"\r\n"));
-            }
-        }
-    }
+    let _ = v.try_extend_from_slice(b"User-Agent: ");
+    let _ = v.try_extend_from_slice(unit.agent.config.user_agent.as_bytes());
+    let _ = v.try_extend_from_slice(b"\r\n");
 
     // finish
 
-    v.push(IoSlice::new(b"\r\n"));
+    let _ = v.try_extend_from_slice(b"\r\n");
     /*
     let mut arr = [0u8; 2048];
     let c = (&mut arr[..]).write_vectored(&v)?;
     println!("Arr \n{}", std::str::from_utf8(&arr[..c]).unwrap());
     */
 
-    let _ = stream.write_vectored(&v)?;
+    stream.write_all(&v)?;
     // write all to the wire
-    let _ = stream.flush()?;
 
     Ok(())
 }

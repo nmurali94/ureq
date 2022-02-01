@@ -8,6 +8,8 @@ use std::net::{UdpSocket, SocketAddr};
 use dns_parser::RData::A;
 use dns_parser::{Builder, Packet, QueryClass, QueryType};
 
+use io_uring::{dns};
+
 use chunked_transfer::Decoder as ChunkDecoder;
 
 #[cfg(feature = "tls")]
@@ -141,12 +143,11 @@ impl Write for Stream {
     }
 }
 
-pub(crate) fn connect_http(unit: &Unit, hostname: &str) -> Result<Stream, Error> {
+pub(crate) fn connect_http(unit: &Unit) -> Result<Stream, Error> {
     //
-    let port = unit.url.port().unwrap_or(80);
-
-    connect_host(hostname, port).map(Stream::from_tcp_stream)
+    connect_host(unit).map(Stream::from_tcp_stream)
 }
+
 #[cfg(feature = "tls")]
 use once_cell::sync::Lazy;
 #[cfg(feature = "tls")]
@@ -175,8 +176,12 @@ static TLS_CONF: Lazy<Arc<rustls::ClientConfig>> = Lazy::new(|| {
 });
 
 #[cfg(feature = "tls")]
-pub(crate) fn connect_https(unit: &Unit, hostname: &str) -> Result<Stream, Error> {
-    let port = unit.url.port().unwrap_or(443);
+pub(crate) fn connect_https(unit: &Unit) -> Result<Stream, Error> {
+    let mut sock = connect_host(unit)?;
+    let hostname = unit
+        .url
+        .host_str()
+        ;
 
     let tls_conf: Arc<rustls::ClientConfig> = unit
         .agent
@@ -185,7 +190,6 @@ pub(crate) fn connect_https(unit: &Unit, hostname: &str) -> Result<Stream, Error
         .as_ref()
         .map(|c| c.0.clone())
         .unwrap_or_else(|| TLS_CONF.clone());
-    let mut sock = connect_host(hostname, port)?;
     let mut sess = rustls::ClientConnection::new(
         tls_conf,
         rustls::ServerName::try_from(hostname).map_err(|_e| ErrorKind::Dns.new())?,
@@ -230,8 +234,19 @@ fn to_socket_addrs(netloc: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
     Ok(socks)
 }
 
-pub(crate) fn connect_host(hostname: &str, port: u16) -> Result<TcpStream, Error> {
+fn resolve_names(names: &[&str]) {
+    //let names: Vec<_> = configs.split(|&b| b == b'\n').filter_map(|s| std::str::from_utf8(s).ok()).map(|s| s.trim()).collect();
+    let mut buffers = vec![[0; 512]; names.len()];
+    let _addrs = dns(&names, &mut buffers).expect("Failed to resolve dns");
+}
+
+fn connect_host(unit: &Unit) -> Result<TcpStream, Error> {
     //println!("Netloc {:?}", netloc);
+    let hostname = unit
+        .url
+        .host_str()
+        ;
+    let port = unit.url.port();
 
     // TODO: Find a way to apply deadline to DNS lookup.
     let sock_addrs = to_socket_addrs(hostname, port)?;
@@ -266,6 +281,8 @@ pub(crate) fn connect_host(hostname: &str, port: u16) -> Result<TcpStream, Error
         return Err(ErrorKind::Dns.msg(&format!("No ip address for {}", hostname)));
         //panic!("shouldn't happen: failed to connect to all IPs, but no error");
     };
+
+    stream.set_nodelay(true)?;
 
     Ok(stream)
 }

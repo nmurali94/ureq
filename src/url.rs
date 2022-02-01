@@ -83,12 +83,14 @@ impl Url {
         &self.serialization[i..j]
     }
 
-    pub fn query(&self) -> Option<&str> {
-        None
-    }
+    pub fn port(&self) -> u16 {
+        let v = match self.scheme() {
+            "http" => 80,
+            "https" => 443,
+            _  => 0,
+        };
 
-    pub fn port(&self) -> Option<u16> {
-        self.port
+        self.port.unwrap_or(v)
     }
 
     pub fn as_str(&self) -> &str {

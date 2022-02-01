@@ -327,12 +327,10 @@ fn read_status_and_headers(reader: &mut impl Read) -> io::Result<(BufVec, CarryO
     let mut buf = BufVec::new_const();
     let mut buffer = [0u8; 8192];
 
-    let limited_reader = reader;
-
     let mut carry = 0;
 
     loop {
-            let r = limited_reader.read(&mut buffer[carry..]);
+            let r = reader.read(&mut buffer[carry..]);
 
             let mut c = match r {
                 Ok(n) => n,
