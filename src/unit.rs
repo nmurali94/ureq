@@ -23,6 +23,11 @@ pub(crate) struct Unit {
     headers: HeaderVec,
     pub deadline: time::Instant,
 }
+pub(crate) struct GetUnits {
+    pub agent: Agent,
+    pub urls: Vec<Url>,
+    headers: HeaderVec,
+}
 //type HistoryVec = arrayvec::ArrayVec<Url, 8>;
 type HeaderVec = arrayvec::ArrayVec<Header, 16>;
 
@@ -33,12 +38,11 @@ impl Unit {
         agent: &Agent,
         method: &str,
         url: &Url,
-        headers: &[Header],
         deadline: time::Instant,
     ) -> Self {
         //
 
-        let headers = headers.try_into().unwrap();
+        let headers = HeaderVec::new();
 
         Unit {
             agent: agent.clone(),
@@ -53,6 +57,24 @@ impl Unit {
         self.method.eq_ignore_ascii_case("head")
     }
 
+}
+
+impl GetUnits {
+
+    pub(crate) fn new(
+        agent: &Agent,
+        urls: Vec<Url>,
+    ) -> Self {
+        //
+
+        let headers = HeaderVec::new();
+
+        GetUnits {
+            agent: agent.clone(),
+            urls: urls,
+            headers,
+        }
+    }
 }
 
 /// Perform a connection. Follows redirects.
