@@ -5,8 +5,6 @@ use std::time;
 use crate::url::Url;
 
 use crate::error::{Error, ErrorKind};
-use crate::header;
-use crate::header::{Header};
 use crate::response::Response;
 use crate::stream::{self, Stream};
 use crate::Agent;
@@ -18,16 +16,12 @@ pub(crate) struct Unit {
     pub agent: Agent,
     pub method: String,
     pub url: Url,
-    headers: HeaderVec,
     pub deadline: time::Instant,
 }
 pub(crate) struct GetUnits {
     pub agent: Agent,
     pub urls: Vec<Url>,
-    headers: HeaderVec,
 }
-//type HistoryVec = arrayvec::ArrayVec<Url, 8>;
-type HeaderVec = arrayvec::ArrayVec<Header, 16>;
 
 impl Unit {
     //
@@ -40,13 +34,10 @@ impl Unit {
     ) -> Self {
         //
 
-        let headers = HeaderVec::new();
-
         Unit {
             agent: agent.clone(),
             method: method.to_string(),
             url: url.clone(),
-            headers,
             deadline,
         }
     }
@@ -65,12 +56,9 @@ impl GetUnits {
     ) -> Self {
         //
 
-        let headers = HeaderVec::new();
-
         GetUnits {
             agent: agent.clone(),
             urls: urls,
-            headers,
         }
     }
 }

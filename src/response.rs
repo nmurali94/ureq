@@ -232,10 +232,10 @@ impl Response {
 
         let stream = self.stream;
         let unit = self.unit;
-            let result = time_until_deadline(unit.deadline);
-            if let Err(e) = result {
-                return (Box::new(ErrorReader(e)) as Box<dyn Read + Send>, self.carryover);
-            }
+        let result = time_until_deadline(unit.deadline);
+        if let Err(e) = result {
+            return (Box::new(ErrorReader(e)) as Box<dyn Read + Send>, self.carryover);
+        }
 
         match (use_chunked, limit_bytes) {
             (true, _) => (Box::new(ChunkDecoder::new(stream)), self.carryover),
@@ -268,11 +268,8 @@ impl Response {
         // The status line we can ignore non-utf8 chars and parse as_str_lossy().
         let (mut headers, carryover) = read_status_and_headers(&mut stream)?;
 
-        let i = memchr::memchr(b'\n', &headers);
-        if i.is_none() {
-            return Err(ErrorKind::BadStatus.msg("Missing Status Line"));
-        }
-        let i = i.unwrap();
+        let i = memchr::memchr(b'\n', &headers)
+		.ok_or(ErrorKind::BadStatus.msg("Missing Status Line"))?;
         let status_line: StatusVec = headers.drain(..i+1).collect();
         //println!("Status: {}", std::str::from_utf8(&status_line).unwrap());
 
