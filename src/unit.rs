@@ -58,7 +58,7 @@ impl GetUnits {
 
         GetUnits {
             agent: agent.clone(),
-            urls: urls,
+            urls,
         }
     }
 }
@@ -118,7 +118,7 @@ fn connect_inner(
 }
 
 /// Connect the socket, either by using the pool or grab a new one.
-fn connect_sockets(units: &[GetUnits])  {
+fn connect_sockets(_units: &[GetUnits])  {
 }
 /// Connect the socket, either by using the pool or grab a new one.
 fn connect_socket(unit: &Unit) -> Result<Stream, Error> {

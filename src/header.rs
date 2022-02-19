@@ -22,8 +22,7 @@ impl <const N: usize> TryFrom<arrayvec::ArrayVec<u8, N>> for Headers {
             let key = data.iter()
                 .map(|c| c.to_ascii_lowercase())
                 .collect::<HeaderName>();
-			let value = (&v[colon+1..end]).iter()
-                .map(|c| c.clone())
+			let value = (&v[colon+1..end]).iter().copied()
 				.collect::<HeaderValue>();
             start = end + 2;
             map.insert(key, value);

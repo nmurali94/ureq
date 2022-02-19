@@ -242,7 +242,7 @@ fn to_socket_addrs(netloc: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
 fn resolve_names(names: &[&str]) {
     //let names: Vec<_> = configs.split(|&b| b == b'\n').filter_map(|s| std::str::from_utf8(s).ok()).map(|s| s.trim()).collect();
     let mut buffers = vec![[0; 512]; names.len()];
-    let _addrs = dns(&names, &mut buffers).expect("Failed to resolve dns");
+    let _addrs = dns(names, &mut buffers).expect("Failed to resolve dns");
 }
 
 fn connect_host(unit: &Unit) -> Result<TcpStream, Error> {
