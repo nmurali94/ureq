@@ -34,22 +34,6 @@ pub trait OrAnyStatus {
     /// helper is for handling all responses as [`Response`], regardless
     /// of status code.
     ///
-    /// ```
-    /// # ureq::is_test(true);
-    /// # fn main() -> Result<(), ureq::Transport> {
-    /// // Bring trait into context.
-    /// use ureq::OrAnyStatus;
-    ///
-    /// let response = ureq::get("http://httpbin.org/status/500")
-    ///     .call()
-    ///     // Transport errors, such as DNS or connectivity problems
-    ///     // must still be dealt with as `Err`.
-    ///     .or_any_status()?;
-    ///
-    /// assert_eq!(response.status(), 500);
-    /// # Ok(())
-    /// # }
-    /// ```
     fn or_any_status(self) -> Result<Response, Transport>;
 }
 
@@ -142,12 +126,6 @@ impl Error {
 
     /// The type of this error.
     ///
-    /// ```
-    /// # ureq::is_test(true);
-    /// let err = ureq::get("http://httpbin.org/status/500")
-    ///     .call().unwrap_err();
-    /// assert_eq!(err.kind(), ureq::ErrorKind::HTTP);
-    /// ```
     pub fn kind(&self) -> ErrorKind {
         match self {
             Error::Status(_, _) => ErrorKind::HTTP,

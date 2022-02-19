@@ -29,16 +29,6 @@
 //!
 //! In its simplest form, ureq looks like this:
 //!
-//! ```rust
-//! fn main() -> Result<(), ureq::Error> {
-//! # ureq::is_test(true);
-//!     let body: String = ureq::get("http://example.com")
-//!         .set("Example-Header", "header value")
-//!         .call()?
-//!         .into_string()?;
-//!     Ok(())
-//! }
-//! ```
 //!
 //! For more involved tasks, you'll want to create an [Agent]. An Agent
 //! holds a connection pool for reuse, and a cookie store if you use the
@@ -46,48 +36,9 @@
 //! [Arc](std::sync::Arc) and all clones of an Agent share state among each other. Creating
 //! an Agent also allows setting options like the TLS configuration.
 //!
-//! ```no_run
-//! # fn main() -> std::result::Result<(), ureq::Error> {
-//! # ureq::is_test(true);
-//!   use ureq::{Agent, AgentBuilder};
-//!   use std::time::Duration;
-//!
-//!   let agent: Agent = ureq::AgentBuilder::new()
-//!       .timeout_read(Duration::from_secs(5))
-//!       .timeout_write(Duration::from_secs(5))
-//!       .build();
-//!   let body: String = agent.get("http://example.com/page")
-//!       .call()?
-//!       .into_string()?;
-//!
-//!   // Reuses the connection from previous request.
-//!   let response: String = agent.put("http://example.com/upload")
-//!       .set("Authorization", "example-token")
-//!       .call()?
-//!       .into_string()?;
-//! # Ok(())
-//! # }
-//! ```
 //!
 //! Ureq supports sending and receiving json, if you enable the "json" feature:
 //!
-//! ```rust
-//! # #[cfg(feature = "json")]
-//! # fn main() -> std::result::Result<(), ureq::Error> {
-//! # ureq::is_test(true);
-//!   // Requires the `json` feature enabled.
-//!   let resp: String = ureq::post("http://myapi.example.com/ingest")
-//!       .set("X-My-Header", "Secret")
-//!       .send_json(ureq::json!({
-//!           "name": "martin",
-//!           "rust": true
-//!       }))?
-//!       .into_string()?;
-//! # Ok(())
-//! # }
-//! # #[cfg(not(feature = "json"))]
-//! # fn main() {}
-//! ```
 //!
 //! ## Error handling
 //!
@@ -95,21 +46,6 @@
 //! protocol errors, and status code errors (when the server responded 4xx or
 //! 5xx)
 //!
-//! ```rust
-//! use ureq::Error;
-//!
-//! # fn req() {
-//! match ureq::get("http://mypage.example.com/").call() {
-//!     Ok(response) => { /* it worked */},
-//!     Err(Error::Status(code, response)) => {
-//!         /* the server returned an unexpected status
-//!            code (such as 400, 500 etc) */
-//!     }
-//!     Err(_) => { /* some kind of io/transport error */ }
-//! }
-//! # }
-//! # fn main() {}
-//! ```
 //!
 //! More details on the [Error] type.
 //!
@@ -168,11 +104,6 @@
 //! sending the body, ureq will respect that header by not overriding it,
 //! and by encoding the body or not, as indicated by the headers you set.
 //!
-//! ```
-//! let resp = ureq::post("http://my-server.com/ingest")
-//!     .set("Transfer-Encoding", "chunked")
-//!     .send_string("Hello world");
-//! ```
 //!
 //! # Character encoding
 //!
@@ -200,39 +131,9 @@
 //!
 //! ## Example using HTTP CONNECT
 //!
-//! ```rust
-//! fn proxy_example_1() -> std::result::Result<(), ureq::Error> {
-//!     // Configure an http connect proxy. Notice we could have used
-//!     // the http:// prefix here (it's optional).
-//!     let proxy = ureq::Proxy::new("user:password@cool.proxy:9090")?;
-//!     let agent = ureq::AgentBuilder::new()
-//!         .proxy(proxy)
-//!         .build();
-//!
-//!     // This is proxied.
-//!     let resp = agent.get("http://cool.server").call()?;
-//!     Ok(())
-//! }
-//! # fn main() {}
-//! ```
 //!
 //! ## Example using SOCKS5
 //!
-//! ```rust
-//! # #[cfg(feature = "socks-proxy")]
-//! fn proxy_example_2() -> std::result::Result<(), ureq::Error> {
-//!     // Configure a SOCKS proxy.
-//!     let proxy = ureq::Proxy::new("socks5://user:password@cool.proxy:9090")?;
-//!     let agent = ureq::AgentBuilder::new()
-//!         .proxy(proxy)
-//!         .build();
-//!
-//!     // This is proxied.
-//!     let resp = agent.get("http://cool.server").call()?;
-//!     Ok(())
-//! }
-//! # fn main() {}
-//! ```
 //!
 //! # Blocking I/O for simplicity
 //!
@@ -287,8 +188,6 @@ mod stream;
 mod unit;
 mod url;
 
-#[cfg(test)]
-mod test;
 #[doc(hidden)]
 //mod testserver;
 
@@ -327,40 +226,3 @@ pub fn get(path: &str) -> Result<Request> {
     agent().get(path)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn connect_http_google() {
-        let agent = Agent::new();
-
-        let resp = agent.get("http://www.google.com/").call().unwrap();
-        assert_eq!(
-            "text/html; charset=ISO-8859-1",
-            resp.header("content-type").unwrap()
-        );
-        assert_eq!("text/html", resp.content_type());
-    }
-
-    #[test]
-    #[cfg(feature = "tls")]
-    fn connect_https_google() {
-        let agent = Agent::new();
-
-        let resp = agent.get("https://www.google.com/").call().unwrap();
-        assert_eq!(
-            "text/html; charset=ISO-8859-1",
-            resp.header("content-type").unwrap()
-        );
-        assert_eq!("text/html", resp.content_type());
-    }
-
-    #[test]
-    #[cfg(feature = "tls")]
-    fn connect_https_invalid_name() {
-        let result = get("https://example.com{REQUEST_URI}/").call();
-        let e = ErrorKind::Dns;
-        assert_eq!(result.unwrap_err().kind(), e);
-    }
-}

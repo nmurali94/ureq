@@ -10,15 +10,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Request instances are builders that creates a request.
 ///
-/// ```
-/// # fn main() -> Result<(), ureq::Error> {
-/// # ureq::is_test(true);
-/// let response = ureq::get("http://example.com/form")
-///     .query("foo", "bar baz")  // add ?foo=bar+baz
-///     .call()?;                 // run the request
-/// # Ok(())
-/// # }
-/// ```
 #[derive(Clone)]
 pub struct Request {
     agent: Agent,
@@ -102,14 +93,6 @@ impl Request {
     /// Use this with GET, HEAD, OPTIONS or TRACE. It sends neither
     /// Content-Length nor Transfer-Encoding.
     ///
-    /// ```
-    /// # fn main() -> Result<(), ureq::Error> {
-    /// # ureq::is_test(true);
-    /// let resp = ureq::get("http://example.com/")
-    ///     .call()?;
-    /// # Ok(())
-    /// # }
-    /// ```
 
     pub fn call(self) -> Result<Response> {
         let timeout = self.agent.config.timeout_connect;

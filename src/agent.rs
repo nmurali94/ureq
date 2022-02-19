@@ -23,24 +23,6 @@ pub(crate) struct AgentConfig {
 
 /// can keep a state.
 ///
-/// ```
-/// # fn main() -> Result<(), ureq::Error> {
-/// # ureq::is_test(true);
-/// let mut agent = ureq::agent();
-///
-/// agent
-///     .post("http://example.com/login")
-///     .call()?;
-///
-/// let secret = agent
-///     .get("http://example.com/my-protected-page")
-///     .call()?
-///     .into_string()?;
-///
-///   println!("Secret is: {}", secret);
-/// # Ok(())
-/// # }
-/// ```
 ///
 /// Agent uses an inner Arc, so cloning an Agent results in an instance
 /// that shares the same underlying connection pool and other state.
@@ -99,15 +81,3 @@ impl std::fmt::Debug for TLSClientConfig {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    ///////////////////// AGENT TESTS //////////////////////////////
-
-    #[test]
-    fn agent_implements_send_and_sync() {
-        let _agent: Box<dyn Send> = Box::new(AgentBuilder::new().build());
-        let _agent: Box<dyn Sync> = Box::new(AgentBuilder::new().build());
-    }
-}

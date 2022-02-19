@@ -35,10 +35,3 @@ serde = { version = "1", features = ["derive"] }
 env_logger = "0.9"
 rustls = { version = "0.20", features = ["dangerous_configuration"] }
 rustls-pemfile = { version = "0.2" }
-
-[[example]]
-name = "smoke-test"
-
-[[example]]
-name = "cureq"
-required-features = ["charset", "cookies", "socks-proxy"]

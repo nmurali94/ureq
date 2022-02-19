@@ -28,19 +28,6 @@ pub const DEFAULT_CHARACTER_SET: &str = "utf-8";
 /// is returned to the [`Agent`](crate::Agent) connection pool used (notice there is always
 /// an agent present, even when not explicitly configured by the user).
 ///
-/// ```
-/// # fn main() -> Result<(), ureq::Error> {
-/// # ureq::is_test(true);
-/// let response = ureq::get("http://example.com/").call()?;
-///
-/// // socket is still open and the response body has not been read.
-///
-/// let text = response.into_string()?;
-///
-/// // response is consumed, and body has been read.
-/// # Ok(())
-/// # }
-/// ```
 
 type StatusVec = arrayvec::ArrayVec<u8, 32>;
 //type HistoryVec = arrayvec::ArrayVec<Url, 8>;
@@ -79,15 +66,6 @@ impl Response {
     ///
     /// Example:
     ///
-    /// ```
-    /// # fn main() -> Result<(), ureq::Error> {
-    /// # ureq::is_test(true);
-    /// let resp = ureq::Response::new(401, "Authorization Required", "Please log in")?;
-    ///
-    /// assert_eq!(resp.status(), 401);
-    /// # Ok(())
-    /// # }
-    /// ```
     /*
     pub fn new(status: u16, status_text: &str, body: &str) -> Result<Response, Error> {
         let r = format!("HTTP/1.1 {} {}\r\n\r\n{}", status, status_text, body);
@@ -124,15 +102,6 @@ impl Response {
     ///
     /// Example:
     ///
-    /// ```
-    /// # fn main() -> Result<(), ureq::Error> {
-    /// # ureq::is_test(true);
-    /// let resp = ureq::get("http://example.com/").call()?;
-    /// assert!(matches!(resp.header("content-type"), Some("text/html; charset=ISO-8859-1")));
-    /// assert_eq!("text/html", resp.content_type());
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn content_type(&self) -> &str {
         self.header("content-type")
             .map(|header| {
@@ -148,15 +117,6 @@ impl Response {
     ///
     /// Example:
     ///
-    /// ```
-    /// # fn main() -> Result<(), ureq::Error> {
-    /// # ureq::is_test(true);
-    /// let resp = ureq::get("http://example.com/").call()?;
-    /// assert!(matches!(resp.header("content-type"), Some("text/html; charset=ISO-8859-1")));
-    /// assert_eq!("ISO-8859-1", resp.charset());
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn charset(&self) -> &str {
         charset_from_content_type(self.header("content-type"))
     }
@@ -176,26 +136,6 @@ impl Response {
     ///
     /// Example:
     ///
-    /// ```
-    /// use std::io::Read;
-    /// # fn main() -> Result<(), ureq::Error> {
-    /// # ureq::is_test(true);
-    /// let resp = ureq::get("http://httpbin.org/bytes/100")
-    ///     .call()?;
-    ///
-    /// assert!(resp.has("Content-Length"));
-    /// let len = resp.header("Content-Length")
-    ///     .and_then(|s| s.parse::<usize>().ok()).unwrap();
-    ///
-    /// let mut bytes: Vec<u8> = Vec::with_capacity(len);
-    /// resp.into_reader()
-    ///     .take(10_000_000)
-    ///     .read_to_end(&mut bytes)?;
-    ///
-    /// assert_eq!(bytes.len(), len);
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn into_reader(self) -> (impl Read + Send, CarryOver) {
         //
         let (http_version, status, _status_text) = self.get_status_line().unwrap();
