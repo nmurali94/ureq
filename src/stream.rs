@@ -232,6 +232,11 @@ fn to_socket_addrs(netloc: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
     })
     .collect();
     Ok(socks)
+	/*
+	use std::net::ToSocketAddrs;
+	let addrs = (netloc, port).to_socket_addrs()?;
+	Ok(addrs.collect())
+	*/
 }
 
 fn resolve_names(names: &[&str]) {
