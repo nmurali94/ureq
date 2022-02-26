@@ -11,6 +11,7 @@ use dns_parser::{Builder, Packet, QueryClass, QueryType};
 use io_uring::{dns};
 
 use chunked_transfer::Decoder as ChunkDecoder;
+use crate::url::Url;
 
 #[cfg(feature = "tls")]
 use rustls::ClientConnection;
@@ -18,9 +19,10 @@ use rustls::ClientConnection;
 use rustls::StreamOwned;
 
 use crate::{error::Error};
+use crate::Agent;
 
 use crate::error::ErrorKind;
-use crate::unit::Unit;
+use crate::unit::{Unit, GetUnits};
 
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum Stream {
@@ -28,6 +30,11 @@ pub(crate) enum Stream {
     #[cfg(feature = "tls")]
     Https(rustls::StreamOwned<rustls::ClientConnection, TcpStream>),
 }
+
+impl Stream {
+
+}
+
 
 // DeadlineStream wraps a stream such that read() will return an error
 // after the provided deadline, and sets timeouts on the underlying
@@ -64,7 +71,7 @@ impl Stream {
         stream
     }
 
-    fn from_tcp_stream(t: TcpStream) -> Stream {
+    pub fn from_tcp_stream(t: TcpStream) -> Stream {
         Stream::logged_create(
             Stream::Http(t),
         )
@@ -147,6 +154,13 @@ pub(crate) fn connect_http(unit: &Unit) -> Result<Stream, Error> {
     //
     connect_host(unit).map(Stream::from_tcp_stream)
 }
+pub(crate) fn connect_http_v2(urls: &[Url], ports: &[u16]) -> Result<Vec<TcpStream>, Error> {
+    let urls: Vec<_> = urls.iter().map(|u| u.as_str()).collect();
+    match connect_hosts(urls.as_slice(), ports) {
+		Ok(v) => Ok(v),
+		Err(e) => Err(Error::from(e)),
+	}
+}
 
 #[cfg(feature = "tls")]
 use once_cell::sync::Lazy;
@@ -174,6 +188,30 @@ static TLS_CONF: Lazy<Arc<rustls::ClientConfig>> = Lazy::new(|| {
         .with_no_client_auth();
     Arc::new(config)
 });
+
+#[cfg(feature = "tls")]
+pub(crate) fn connect_https_v2(mut sock: TcpStream, hostname: &str, agent: &Agent) -> Result<Stream, Error> {
+
+    let tls_conf: Arc<rustls::ClientConfig> = agent
+        .config
+        .tls_config
+        .as_ref()
+        .map(|c| c.0.clone())
+        .unwrap_or_else(|| TLS_CONF.clone());
+    let mut sess = rustls::ClientConnection::new(
+        tls_conf,
+        rustls::ServerName::try_from(hostname).map_err(|_e| ErrorKind::Dns.new())?,
+    )
+    .map_err(|e| ErrorKind::Io.new().src(e))?;
+    // TODO rustls 0.20.1: Add src to ServerName error (0.20 didn't implement StdError trait for it)
+
+    sess.complete_io(&mut sock)
+        .map_err(|err| ErrorKind::ConnectionFailed.new().src(err))?;
+    let stream = rustls::StreamOwned::new(sess, sock);
+
+    Ok(Stream::from_tls_stream(stream))
+}
+
 
 #[cfg(feature = "tls")]
 pub(crate) fn connect_https(unit: &Unit) -> Result<Stream, Error> {
@@ -239,10 +277,19 @@ fn to_socket_addrs(netloc: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
 	*/
 }
 
-fn resolve_names(names: &[&str]) {
+fn connect_hosts(names: &[&str], ports: &[u16]) -> Result<Vec<TcpStream>, io::Error> {
     //let names: Vec<_> = configs.split(|&b| b == b'\n').filter_map(|s| std::str::from_utf8(s).ok()).map(|s| s.trim()).collect();
     let mut buffers = vec![[0; 512]; names.len()];
-    let _addrs = dns(names, &mut buffers).expect("Failed to resolve dns");
+    let msgs = dns(names, &mut buffers).expect("Failed to resolve dns");
+	let mut socks = Vec::new();
+	for (msg, port) in msgs.iter().zip(ports.iter()) {
+		let (name, ips) = msg.get().expect("Failed to parse packet");
+		let ipaddr  = ips[0];
+		let socketaddr = SocketAddr::new(ipaddr, *port);
+		
+		socks.push(socketaddr);
+	}
+	io_uring::connect(socks)
 }
 
 fn connect_host(unit: &Unit) -> Result<TcpStream, Error> {

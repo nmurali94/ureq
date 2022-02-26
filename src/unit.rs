@@ -118,7 +118,22 @@ fn connect_inner(
 }
 
 /// Connect the socket, either by using the pool or grab a new one.
-fn connect_sockets(_units: &[GetUnits])  {
+fn connect_sockets(units: GetUnits, https: bool) -> Result<Vec<Stream>, Error> {
+	let p: Vec<_> = units.urls.iter().map(|u| if u.scheme() == "https" { 443 } else { 80 }).collect();
+	
+	let streams = stream::connect_http_v2(&units.urls, p.as_slice())?;
+	if https {
+		let mut ss = Vec::new();
+		for (i, stream) in streams.into_iter().enumerate() {
+			let s = stream::connect_https_v2(stream, units.urls[i].host_str(), &units.agent)?;
+			ss.push(s);
+		}
+		Ok(ss)
+	} else { 
+		let s = streams.into_iter().zip(units.urls.iter()).filter(|(stream, u)| u.scheme() == "https")
+		.map(|(s, _)| Stream::from_tcp_stream(s)).collect(); 
+		Ok(s)
+	}
 }
 /// Connect the socket, either by using the pool or grab a new one.
 fn connect_socket(unit: &Unit) -> Result<Stream, Error> {
