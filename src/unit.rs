@@ -1,5 +1,4 @@
 use std::io::{self, Write};
-use std::time;
 
 //use url::Url;
 use crate::url::Url;
@@ -16,11 +15,10 @@ pub(crate) struct Unit {
     pub agent: Agent,
     pub method: String,
     pub url: Url,
-    pub deadline: time::Instant,
 }
-pub(crate) struct GetUnits {
+pub(crate) struct GetUnits<'a> {
     pub agent: Agent,
-    pub urls: Vec<Url>,
+    pub urls: &'a [Url],
 }
 
 impl Unit {
@@ -30,7 +28,6 @@ impl Unit {
         agent: &Agent,
         method: &str,
         url: &Url,
-        deadline: time::Instant,
     ) -> Self {
         //
 
@@ -38,21 +35,15 @@ impl Unit {
             agent: agent.clone(),
             method: method.to_string(),
             url: url.clone(),
-            deadline,
         }
     }
-
-    pub fn is_head(&self) -> bool {
-        self.method.eq_ignore_ascii_case("head")
-    }
-
 }
 
-impl GetUnits {
+impl<'a> GetUnits<'a> {
 
     pub(crate) fn new(
         agent: &Agent,
-        urls: Vec<Url>,
+        urls: &'a [Url],
     ) -> Self {
         //
 
@@ -61,6 +52,13 @@ impl GetUnits {
             urls,
         }
     }
+}
+/// Perform a connection. Follows redirects.
+pub(crate) fn connect_v2(
+    units: GetUnits,
+) -> Result<Vec<Stream>, Error> {
+    //let mut history = HistoryVec::new();
+	connect_sockets(&units)
 }
 
 /// Perform a connection. Follows redirects.
@@ -86,8 +84,7 @@ fn connect_inner(
     // open socket
     let mut stream = connect_socket(&unit)?;
 
-    //let mut buf_stream = BufWriter::with_capacity(256, &mut stream);
-    let send_result = send_prelude(&unit, &mut stream);
+    let send_result = send_request(&unit.url, &unit.agent, &mut stream);
 
     if let Err(err) = send_result {
         // not a pooled connection, propagate the error.
@@ -95,8 +92,7 @@ fn connect_inner(
     }
 
     // start reading the response to process cookies and redirects.
-    //drop(buf_stream);
-    let result = Response::do_from_request(unit, stream);
+    let result = Response::do_from_stream(stream);
 
     // https://tools.ietf.org/html/rfc7230#section-6.3.1
     // When an inbound connection is closed prematurely, a client MAY
@@ -118,22 +114,19 @@ fn connect_inner(
 }
 
 /// Connect the socket, either by using the pool or grab a new one.
-fn connect_sockets(units: GetUnits, https: bool) -> Result<Vec<Stream>, Error> {
+fn connect_sockets(units: &GetUnits) -> Result<Vec<Stream>, Error> {
 	let p: Vec<_> = units.urls.iter().map(|u| if u.scheme() == "https" { 443 } else { 80 }).collect();
-	
 	let streams = stream::connect_http_v2(&units.urls, p.as_slice())?;
-	if https {
-		let mut ss = Vec::new();
-		for (i, stream) in streams.into_iter().enumerate() {
-			let s = stream::connect_https_v2(stream, units.urls[i].host_str(), &units.agent)?;
-			ss.push(s);
-		}
-		Ok(ss)
-	} else { 
-		let s = streams.into_iter().zip(units.urls.iter()).filter(|(stream, u)| u.scheme() == "https")
-		.map(|(s, _)| Stream::from_tcp_stream(s)).collect(); 
-		Ok(s)
+	let mut ss = Vec::new();
+	for (i, (stream, url)) in streams.into_iter().zip(units.urls.iter()).enumerate() {
+		let s = if url.scheme() == "https" {
+			stream::connect_https_v2(stream, units.urls[i].host_str(), &units.agent)?
+		} else {
+			Stream::from_tcp_stream(stream)
+		};
+		ss.push(s);
 	}
+	Ok(ss)
 }
 /// Connect the socket, either by using the pool or grab a new one.
 fn connect_socket(unit: &Unit) -> Result<Stream, Error> {
@@ -150,23 +143,22 @@ fn connect_socket(unit: &Unit) -> Result<Stream, Error> {
 }
 
 /// Send request line + headers (all up until the body).
-#[allow(clippy::write_with_newline)]
-fn send_prelude(unit: &Unit, stream: &mut Stream) -> io::Result<()> {
+pub(crate) fn send_request(url: &Url, agent: &Agent, stream: &mut Stream) -> io::Result<()> {
 
     // request line
     let mut v = arrayvec::ArrayVec::<u8, 512>::new_const();
     
     let _ = v.try_extend_from_slice(b"GET ");
-    let _ = v.try_extend_from_slice(unit.url.path().as_bytes());
+    let _ = v.try_extend_from_slice(url.path().as_bytes());
     let _ = v.try_extend_from_slice(b" HTTP/1.1\r\n");
 
     // host header if not set by user.
     let _ = v.try_extend_from_slice(b"Host: ");
-    let _ = v.try_extend_from_slice(unit.url.host_str().as_bytes());
+    let _ = v.try_extend_from_slice(url.host_str().as_bytes());
     let _ = v.try_extend_from_slice(b"\r\n");
 
     let _ = v.try_extend_from_slice(b"User-Agent: ");
-    let _ = v.try_extend_from_slice(unit.agent.config.user_agent.as_bytes());
+    let _ = v.try_extend_from_slice(agent.config.user_agent.as_bytes());
     let _ = v.try_extend_from_slice(b"\r\n");
 
     // finish

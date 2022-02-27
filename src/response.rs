@@ -6,7 +6,7 @@ use chunked_transfer::Decoder as ChunkDecoder;
 
 use crate::error::{Error, ErrorKind::BadStatus};
 use crate::header::{Headers};
-use crate::stream::{Stream, time_until_deadline};
+use crate::stream::{Stream};
 use crate::unit::Unit;
 use crate::{ErrorKind};
 
@@ -38,7 +38,16 @@ pub struct Response {
     status_line: StatusVec,
     headers: Headers,
     // Boxed to avoid taking up too much size.
-    unit: Unit,
+    //unit: Unit,
+    // Boxed to avoid taking up too much size.
+    stream: Stream,
+    carryover: CarryOver,
+    //pub(crate) history: HistoryVec,
+}
+
+pub struct GetResponse {
+    status_line: StatusVec,
+    headers: Headers,
     // Boxed to avoid taking up too much size.
     stream: Stream,
     carryover: CarryOver,
@@ -54,7 +63,6 @@ impl fmt::Debug for Response {
             status,
             text,
             )?;
-        write!(f, ", url: {:?}", self.unit.url)?;
         write!(f, "]")
     }
 }
@@ -72,12 +80,6 @@ impl Response {
         (r.as_ref() as &str).parse()
     }
     */
-
-    /// The URL we ended up at. This can differ from the request url when
-    /// we have followed redirects.
-    pub fn get_url(&self) -> &str {
-        self.unit.url.as_str()
-    }
 
     pub fn get_status_line(&self) -> Result<(&str, u16, &str), Error> {
         parse_status_line_from_header(&self.status_line)
@@ -145,9 +147,7 @@ impl Response {
             .map(|c| c.eq_ignore_ascii_case("close"))
             .unwrap_or(false);
 
-        let is_head = self.unit.is_head();
-        let has_no_body = is_head
-            || match status {
+        let has_no_body = match status {
                 204 | 304 => true,
                 _ => false,
             };
@@ -171,18 +171,13 @@ impl Response {
         //println!("Limit = {} {:?}, {}", use_chunked, limit_bytes, self.carryover.len());
 
         let stream = self.stream;
-        let unit = self.unit;
-        let result = time_until_deadline(unit.deadline);
-        if let Err(e) = result {
-            return (Box::new(ErrorReader(e)) as Box<dyn Read + Send>, self.carryover);
-        }
 
         match (use_chunked, limit_bytes) {
-            (true, _) => (Box::new(ChunkDecoder::new(stream)), self.carryover),
+            (true, _) => (Box::new(ChunkDecoder::new(stream)) as Box<dyn Read + Send>, self.carryover),
             (false, Some(len)) => {
-                (Box::new(LimitedRead::new(stream, len - self.carryover.len())), self.carryover)
+                (Box::new(LimitedRead::new(stream, len - self.carryover.len())) as Box<dyn Read + Send>, self.carryover)
             }
-            (false, None) => (Box::new(stream), self.carryover),
+            (false, None) => (Box::new(stream) as Box<dyn Read + Send>, self.carryover),
         }
     }
 
@@ -199,7 +194,7 @@ impl Response {
     /// let resp = ureq::Response::do_from_read(read);
     ///
     /// assert_eq!(resp.status(), 401);
-    pub(crate) fn do_from_stream(stream: Stream, unit: Unit) -> Result<Response, Error> {
+    pub(crate) fn do_from_stream(stream: Stream) -> Result<Response, Error> {
         //
         // HTTP/1.1 200 OK\r\n
         //let mut stream = BufReader::with_capacity(4096, stream);
@@ -219,15 +214,9 @@ impl Response {
         Ok(Response {
             status_line,
             headers,
-            unit,
             stream,
             carryover,
         })
-    }
-
-    pub(crate) fn do_from_request(unit: Unit, stream: Stream) -> Result<Response, Error> {
-        let resp = Response::do_from_stream(stream, unit)?;
-        Ok(resp)
     }
 }
 

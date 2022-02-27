@@ -2,7 +2,8 @@ use std::{fmt};
 
 use crate::url::{Url};
 
-use crate::unit::{self, Unit};
+use crate::unit::{self, Unit, GetUnits};
+use crate::stream::{Stream};
 use crate::Response;
 use crate::{agent::Agent, error::Error, error::ErrorKind};
 
@@ -17,8 +18,7 @@ pub struct Request {
     url: Url,
 }
 pub struct GetRequests {
-    agent: Agent,
-    urls: Vec<Url>,
+	pub agent: Agent,
 }
 
 impl fmt::Debug for Request {
@@ -32,15 +32,28 @@ impl fmt::Debug for Request {
 }
 
 impl GetRequests {
-    pub(crate) fn new(agent: Agent, urls: Vec<String>) -> Result<GetRequests> {
-        let urls = urls.into_iter()
+	pub(crate) fn call(&self, urls: Vec<String>) -> Result<Vec<Stream>> {
+        let urls: Vec<_> = urls.into_iter()
             .filter_map(|url| Url::parse(url).map_err(|_e| ErrorKind::HTTP.new()).ok())
             .collect();
-        Ok(GetRequests {
-            agent,
-            urls,
-        })
-    }
+        let unit = GetUnits::new(
+            &self.agent,
+            urls.as_slice(),
+        );
+
+		let mut streams = unit::connect_v2(unit)?;
+		for (url, mut stream) in urls.iter().zip(streams.iter_mut()) {
+			unit::send_request(url, &self.agent, &mut stream)?;
+		}
+		Ok(streams)
+	}
+
+	/*
+	pub(crate) fn send_request(&self, ) -> Result<()> {
+		
+	}
+	*/
+	
     /*
 
     /// Sends the request with no body and blocks the caller until done.
@@ -62,9 +75,8 @@ impl GetRequests {
             &self.agent,
             &self.method,
             &self.url,
-            deadline,
         );
-        let response = unit::connect(unit).map_err(|e| e.url(self.url.clone()))?;
+        let response = unit::connect_v2(unit).map_err(|e| e.url(self.url.clone()))?;
 
         let (_version, status, _text) = response.get_status_line()?;
 
@@ -95,14 +107,10 @@ impl Request {
     ///
 
     pub fn call(self) -> Result<Response> {
-        let timeout = self.agent.config.timeout_connect;
-        let deadline = std::time::Instant::now().checked_add(timeout).unwrap();
-
         let unit = Unit::new(
             &self.agent,
             &self.method,
             &self.url,
-            deadline,
         );
         let response = unit::connect(unit).map_err(|e| e.url(self.url.clone()))?;
 

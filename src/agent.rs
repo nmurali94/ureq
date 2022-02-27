@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
-use crate::request::Request;
-use std::time::Duration;
+use crate::request::{Request, GetRequests};
 use crate::{error::Error};
+use crate::stream::Stream;
+use crate::response::Response;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -15,7 +16,6 @@ pub struct AgentBuilder {
 /// Config as built by AgentBuilder and then static for the lifetime of the Agent.
 #[derive(Debug, Clone)]
 pub(crate) struct AgentConfig {
-    pub timeout_connect: Duration,
     pub user_agent: String,
     #[cfg(feature = "tls")]
     pub tls_config: Option<TLSClientConfig>,
@@ -44,13 +44,24 @@ impl Agent {
         let agent = AgentBuilder::new().build();
         Request::new(agent, "GET", path)
     }
+    /// Make a GET request from this agent.
+    pub fn get_multiple(&self, urls: Vec<String>) -> Result<Vec<Stream>> {
+        let agent = AgentBuilder::new().build();
+        let gr = GetRequests{
+			agent
+		};
+		gr.call(urls)
+    }
+    /// Make a GET request from this agent.
+    pub fn get_response(&self, stream: Stream) -> Result<Response> {
+		Response::do_from_stream(stream)
+    }
 }
 
 impl AgentBuilder {
     pub fn new() -> Self {
         AgentBuilder {
             config: AgentConfig {
-                timeout_connect: Duration::from_secs(30),
                 user_agent: "ureq/2.3.1".into(),
                 #[cfg(feature = "tls")]
                 tls_config: None,

@@ -51,7 +51,7 @@ impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Status(status, response) => {
-                write!(f, "{}: status code {}", response.get_url(), status)?;
+                write!(f, "status code {}", status)?;
             }
             Error::Transport(err) => {
                 write!(f, "{}", err)?;

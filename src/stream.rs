@@ -1,7 +1,5 @@
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
-use std::time::Duration;
-use std::time::Instant;
 use std::{fmt};
 use std::net::{UdpSocket, SocketAddr};
 
@@ -22,38 +20,13 @@ use crate::{error::Error};
 use crate::Agent;
 
 use crate::error::ErrorKind;
-use crate::unit::{Unit, GetUnits};
+use crate::unit::{Unit};
 
 #[allow(clippy::large_enum_variant)]
-pub(crate) enum Stream {
+pub enum Stream {
     Http(TcpStream),
     #[cfg(feature = "tls")]
     Https(rustls::StreamOwned<rustls::ClientConnection, TcpStream>),
-}
-
-impl Stream {
-
-}
-
-
-// DeadlineStream wraps a stream such that read() will return an error
-// after the provided deadline, and sets timeouts on the underlying
-// TcpStream to ensure read() doesn't block beyond the deadline.
-// When the From trait is used to turn a DeadlineStream back into a
-// Stream (by PoolReturningRead), the timeouts are removed.
-
-// If the deadline is in the future, return the remaining time until
-// then. Otherwise return a TimedOut error.
-pub(crate) fn time_until_deadline(deadline: Instant) -> io::Result<Duration> {
-    let now = Instant::now();
-    match deadline.checked_duration_since(now) {
-        None => Err(io_err_timeout("timed out reading response".to_string())),
-        Some(duration) => Ok(duration),
-    }
-}
-
-pub(crate) fn io_err_timeout(error: String) -> io::Error {
-    io::Error::new(io::ErrorKind::TimedOut, error)
 }
 
 impl fmt::Debug for Stream {
@@ -283,7 +256,7 @@ fn connect_hosts(names: &[&str], ports: &[u16]) -> Result<Vec<TcpStream>, io::Er
     let msgs = dns(names, &mut buffers).expect("Failed to resolve dns");
 	let mut socks = Vec::new();
 	for (msg, port) in msgs.iter().zip(ports.iter()) {
-		let (name, ips) = msg.get().expect("Failed to parse packet");
+		let (_name, ips) = msg.get().expect("Failed to parse packet");
 		let ipaddr  = ips[0];
 		let socketaddr = SocketAddr::new(ipaddr, *port);
 		
