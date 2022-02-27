@@ -126,6 +126,7 @@ fn connect_sockets(units: &GetUnits) -> Result<Vec<Stream>, Error> {
 		};
 		ss.push(s);
 	}
+	println!("HTTP {}", ss.len());
 	Ok(ss)
 }
 /// Connect the socket, either by using the pool or grab a new one.

@@ -41,6 +41,7 @@ impl GetRequests {
             urls.as_slice(),
         );
 
+		println!("Connect");
 		let mut streams = unit::connect_v2(unit)?;
 		for (url, mut stream) in urls.iter().zip(streams.iter_mut()) {
 			unit::send_request(url, &self.agent, &mut stream)?;

@@ -124,11 +124,10 @@ impl Write for Stream {
 }
 
 pub(crate) fn connect_http(unit: &Unit) -> Result<Stream, Error> {
-    //
     connect_host(unit).map(Stream::from_tcp_stream)
 }
 pub(crate) fn connect_http_v2(urls: &[Url], ports: &[u16]) -> Result<Vec<TcpStream>, Error> {
-    let urls: Vec<_> = urls.iter().map(|u| u.as_str()).collect();
+    let urls: Vec<_> = urls.iter().map(|u| u.host_str()).collect();
     match connect_hosts(urls.as_slice(), ports) {
 		Ok(v) => Ok(v),
 		Err(e) => Err(Error::from(e)),
@@ -262,6 +261,7 @@ fn connect_hosts(names: &[&str], ports: &[u16]) -> Result<Vec<TcpStream>, io::Er
 		
 		socks.push(socketaddr);
 	}
+	println!("Sockets {}", socks.len());
 	io_uring::connect(socks)
 }
 

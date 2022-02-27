@@ -196,9 +196,7 @@ pub use crate::agent::AgentBuilder;
 pub use crate::error::{Error, ErrorKind, OrAnyStatus, Transport};
 pub use crate::request::Request;
 pub use crate::response::Response;
-
-#[cfg(feature = "json")]
-pub use serde_json::{to_value as serde_to_value, Map as SerdeMap, Value as SerdeValue};
+pub use crate::stream::Stream;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -224,5 +222,15 @@ pub fn agent() -> Agent {
 /// Make a GET request.
 pub fn get(path: &str) -> Result<Request> {
     agent().get(path)
+}
+
+/// Send a GET request.
+pub fn send_multiple(path: Vec<String>) -> Result<Vec<Stream>> {
+    agent().get_multiple(path)
+}
+
+/// Make a GET request.
+pub fn get_response(stream: Stream) -> Result<Response> {
+    agent().get_response(stream)
 }
 
