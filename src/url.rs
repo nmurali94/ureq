@@ -92,8 +92,4 @@ impl Url {
 
         self.port.unwrap_or(v)
     }
-
-    pub fn as_str(&self) -> &str {
-        &self.serialization
-    }
 }

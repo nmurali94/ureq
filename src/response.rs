@@ -7,7 +7,6 @@ use chunked_transfer::Decoder as ChunkDecoder;
 use crate::error::{Error, ErrorKind::BadStatus};
 use crate::header::{Headers};
 use crate::stream::{Stream};
-use crate::unit::Unit;
 use crate::{ErrorKind};
 
 use std::convert::TryFrom;
@@ -39,15 +38,6 @@ pub struct Response {
     headers: Headers,
     // Boxed to avoid taking up too much size.
     //unit: Unit,
-    // Boxed to avoid taking up too much size.
-    stream: Stream,
-    carryover: CarryOver,
-    //pub(crate) history: HistoryVec,
-}
-
-pub struct GetResponse {
-    status_line: StatusVec,
-    headers: Headers,
     // Boxed to avoid taking up too much size.
     stream: Stream,
     carryover: CarryOver,
@@ -222,30 +212,26 @@ impl Response {
 
 // HTTP/1.1 200 OK\r\n
 fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, u16, &str), Error> {
-    if s.len() < 12 || s[12] != b' ' || s[8] != b' ' {
+    if s.len() < 12 {
         return Err(BadStatus.msg("Status line isn't formatted correctly"));
     }
-    if s.iter().any(|c| !c.is_ascii()) {
-        Err(BadStatus.msg("Status line not ASCII"))
-    }
-    else if b"HTTP/1.1" != &s[..8] {
+    else if b"HTTP/1.1 " != &s[..9] {
         Err(BadStatus.msg("HTTP version not formatted correctly"))
     }
-    else if s[9..12].iter().any(|c| !c.is_ascii_digit()) {
+    else if s[9..12].iter().any(|c| !c.is_ascii_digit()) || s[12] != b' ' {
         Err(BadStatus.msg("HTTP status code must be a 3 digit number"))
     }
     else {
-        let n = std::str::from_utf8(&s[9..12]).unwrap();
-        let status: u16 = n.parse().map_err(|_| BadStatus.new())?;
-
-        let text = std::str::from_utf8(&s[12..]).unwrap();
-        Ok((
-            "HTTP/1.1",
-            status,
-            text,
-            
-        ))
-
+		let status = ((s[9] - b'0') as u16 * 100)  + (s[10] - b'0') as u16 * 10 + (s[11] - b'0') as u16 * 1;
+        std::str::from_utf8(&s[12..]).map_err(|_| BadStatus.new())
+			.and_then(|text| {
+	        Ok((
+	            "HTTP/1.1",
+	            status,
+	            text,
+	            
+	        ))
+		})
     }
 }
 

@@ -261,7 +261,6 @@ fn connect_hosts(names: &[&str], ports: &[u16]) -> Result<Vec<TcpStream>, io::Er
 		
 		socks.push(socketaddr);
 	}
-	println!("Sockets {}", socks.len());
 	io_uring::connect(socks)
 }
 

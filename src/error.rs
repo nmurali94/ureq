@@ -50,7 +50,7 @@ impl OrAnyStatus for Result<Response, Error> {
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::Status(status, response) => {
+            Error::Status(status, _response) => {
                 write!(f, "status code {}", status)?;
             }
             Error::Transport(err) => {
