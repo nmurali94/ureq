@@ -11,9 +11,6 @@ use crate::{ErrorKind};
 
 use std::convert::TryFrom;
 
-pub const DEFAULT_CONTENT_TYPE: &str = "text/plain";
-pub const DEFAULT_CHARACTER_SET: &str = "utf-8";
-
 /// Response instances are created as results of firing off requests.
 ///
 /// The `Response` is used to read response headers and decide what to do with the body.
@@ -89,30 +86,6 @@ impl Response {
             .map(|s| s.trim())
     }
 
-    /// The content type part of the "Content-Type" header without
-    /// the charset.
-    ///
-    /// Example:
-    ///
-    pub fn content_type(&self) -> &str {
-        self.header("content-type")
-            .map(|header| {
-                header
-                    .find(';')
-                    .map(|index| &header[0..index])
-                    .unwrap_or(header)
-            })
-        .unwrap_or(DEFAULT_CONTENT_TYPE)
-    }
-
-    /// The character set part of the "Content-Type".
-    ///
-    /// Example:
-    ///
-    pub fn charset(&self) -> &str {
-        charset_from_content_type(self.header("content-type"))
-    }
-
     /// Turn this response into a `impl Read` of the body.
     ///
     /// 1. If `Transfer-Encoding: chunked`, the returned reader will unchunk it
@@ -165,7 +138,7 @@ impl Response {
         match (use_chunked, limit_bytes) {
             (true, _) => (Box::new(ChunkDecoder::new(stream)) as Box<dyn Read + Send>, self.carryover),
             (false, Some(len)) => {
-                (Box::new(LimitedRead::new(stream, len - self.carryover.len())) as Box<dyn Read + Send>, self.carryover)
+                (Box::new(stream.take((len - self.carryover.len()) as u64)) as Box<dyn Read + Send>, self.carryover)
             }
             (false, None) => (Box::new(stream) as Box<dyn Read + Send>, self.carryover),
         }
@@ -275,79 +248,6 @@ fn read_status_and_headers(reader: &mut impl Read) -> io::Result<(BufVec, CarryO
     let mut carryover = CarryOver::new_const();
     let _ = carryover.try_extend_from_slice(&buffer[..carry]).unwrap();
     Ok((buf, carryover))
-}
-
-/// Limits a `Read` to a content size (as set by a "Content-Length" header).
-struct LimitedRead<R> {
-    reader: R,
-    limit: usize,
-    position: usize,
-}
-
-impl<R: Read> LimitedRead<R> {
-    fn new(reader: R, limit: usize) -> Self {
-        LimitedRead {
-            reader,
-            limit,
-            position: 0,
-        }
-    }
-}
-
-impl<R: Read> Read for LimitedRead<R> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let left = self.limit - self.position;
-        if left == 0 {
-            return Ok(0);
-        }
-        let from = if left < buf.len() {
-            &mut buf[0..left]
-        } else {
-            buf
-        };
-        match self.reader.read(from) {
-            // https://tools.ietf.org/html/rfc7230#page-33
-            // If the sender closes the connection or
-            // the recipient times out before the indicated number of octets are
-            // received, the recipient MUST consider the message to be
-            // incomplete and close the connection.
-            Ok(0) => Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "response body closed before all bytes were read",
-                    )),
-            Ok(amount) => {
-                self.position += amount;
-                Ok(amount)
-            }
-            Err(e) => Err(e),
-        }
-    }
-}
-
-impl<R: Read> From<LimitedRead<R>> for Stream
-where
-Stream: From<R>,
-{
-    fn from(limited_read: LimitedRead<R>) -> Stream {
-        limited_read.reader.into()
-    }
-}
-
-/// Extract the charset from a "Content-Type" header.
-///
-/// "Content-Type: text/plain; charset=iso8859-1" -> "iso8859-1"
-///
-/// *Internal API*
-pub(crate) fn charset_from_content_type(header: Option<&str>) -> &str {
-    header
-        .and_then(|header| {
-            header.find(';').and_then(|semi| {
-                (&header[semi + 1..])
-                    .find('=')
-                    .map(|equal| (&header[semi + equal + 2..]).trim())
-            })
-        })
-    .unwrap_or(DEFAULT_CHARACTER_SET)
 }
 
 // ErrorReader returns an error for every read.
