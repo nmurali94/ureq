@@ -6,7 +6,7 @@ use std::net::{UdpSocket, SocketAddr};
 use dns_parser::RData::A;
 use dns_parser::{Builder, Packet, QueryClass, QueryType};
 
-use io_uring::{dns};
+use io_uring::{connect, dns};
 
 use chunked_transfer::Decoder as ChunkDecoder;
 use crate::url::Url;
@@ -40,21 +40,14 @@ impl fmt::Debug for Stream {
 }
 
 impl Stream {
-    fn logged_create(stream: Stream) -> Stream {
-        stream
-    }
 
     pub fn from_tcp_stream(t: TcpStream) -> Stream {
-        Stream::logged_create(
-            Stream::Http(t),
-        )
+        Stream::Http(t)
     }
 
     #[cfg(feature = "tls")]
     fn from_tls_stream(t: StreamOwned<ClientConnection, TcpStream>) -> Stream {
-        Stream::logged_create(
-            Stream::Https(t),
-        )
+        Stream::Https(t)
     }
 }
 
@@ -193,18 +186,11 @@ pub(crate) fn connect_https(unit: &Unit) -> Result<Stream, Error> {
         .host_str()
         ;
 
-    let tls_conf: Arc<rustls::ClientConfig> = unit
-        .agent
-        .config
-        .tls_config
-        .as_ref()
-        .map(|c| c.0.clone())
-        .unwrap_or_else(|| TLS_CONF.clone());
+    let server_name = rustls::ServerName::try_from(hostname).map_err(|_e| ErrorKind::Dns.new())?;
     let mut sess = rustls::ClientConnection::new(
-        tls_conf,
-        rustls::ServerName::try_from(hostname).map_err(|_e| ErrorKind::Dns.new())?,
-    )
-    .map_err(|e| ErrorKind::Io.new().src(e))?;
+        TLS_CONF.clone(),
+        server_name,
+    ).map_err(|e| ErrorKind::Io.new().src(e))?;
     // TODO rustls 0.20.1: Add src to ServerName error (0.20 didn't implement StdError trait for it)
 
     sess.complete_io(&mut sock)
@@ -250,10 +236,9 @@ fn to_socket_addrs(netloc: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
 }
 
 fn connect_hosts(names: &[&str], ports: &[u16]) -> Result<Vec<TcpStream>, io::Error> {
-    //let names: Vec<_> = configs.split(|&b| b == b'\n').filter_map(|s| std::str::from_utf8(s).ok()).map(|s| s.trim()).collect();
     let mut buffers = vec![[0; 512]; names.len()];
     let msgs = dns(names, &mut buffers).expect("Failed to resolve dns");
-	let mut socks = Vec::new();
+	let mut socks = Vec::with_capacity(names.len());
 	for (msg, port) in msgs.iter().zip(ports.iter()) {
 		let (_name, ips) = msg.get().expect("Failed to parse packet");
 		let ipaddr  = ips[0];
@@ -261,7 +246,7 @@ fn connect_hosts(names: &[&str], ports: &[u16]) -> Result<Vec<TcpStream>, io::Er
 		
 		socks.push(socketaddr);
 	}
-	io_uring::connect(socks)
+	connect(socks)
 }
 
 fn connect_host(unit: &Unit) -> Result<TcpStream, Error> {
