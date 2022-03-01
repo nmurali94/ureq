@@ -30,8 +30,8 @@ pub const DEFAULT_CHARACTER_SET: &str = "utf-8";
 
 type StatusVec = arrayvec::ArrayVec<u8, 32>;
 //type HistoryVec = arrayvec::ArrayVec<Url, 8>;
-type BufVec = arrayvec::ArrayVec<u8, 8192>;
-type CarryOver = arrayvec::ArrayVec<u8, 8192>;
+type BufVec = arrayvec::ArrayVec<u8, 2048>;
+type CarryOver = arrayvec::ArrayVec<u8, 2048>;
 
 pub struct Response {
     status_line: StatusVec,
@@ -237,7 +237,7 @@ fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, u16, &str), Error> {
 
 fn read_status_and_headers(reader: &mut impl Read) -> io::Result<(BufVec, CarryOver)> {
     let mut buf = BufVec::new_const();
-    let mut buffer = [0u8; 8192];
+    let mut buffer = [0u8; 2048];
 
     let mut carry = 0;
 
