@@ -25,7 +25,7 @@ impl <const N: usize> TryFrom<arrayvec::ArrayVec<u8, N>> for Headers {
 			data[..(end-start)].copy_from_slice(&v[start..end]);
 			let h = Header {
 				meta: ((colon) << 16) | (end - start),
-				data: data,
+				data,
 			};
 			map.push(h);
             start = end + 2;
@@ -41,8 +41,8 @@ impl Headers {
             .collect::<HeaderName>();
 		for header in &self.0 {
 			let meta = &header.meta;
-			let len = meta & 0xFF;
-			let colon = (meta >> 16) & 0xFF;
+			let len = meta & 0xFFFF;
+			let colon = (meta >> 16) & 0xFFFF;
 
 			let data_key = &header.data[..colon];
 			let v = &header.data[colon+1..len];

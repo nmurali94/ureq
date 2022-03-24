@@ -1,49 +1,43 @@
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Url {
     serialization: String,
-    scheme: (usize, usize),
-    host: (usize, usize), 
+    scheme: (u16, u16),
+    host: (u16, u16), 
     port: Option<u16>,
-    path: (usize, usize),
+    path: (u16, u16),
 }
 
-#[derive(Debug, Clone)]
-pub enum ParseError {
-    AsciiError,
-    SchemeError,
-    PathError,
-    HostError,
+#[derive(Debug)]
+pub enum Error {
+    UnsupportedLength,
+    Ascii,
+    Scheme,
+    Path,
+    Host,
 }
 
 impl Url {
-    pub fn parse(s: String) -> Result<Self, ParseError> {
+    pub fn parse(s: String) -> Result<Self, Error> {
         if !s.is_ascii() {
-            return Err(ParseError::AsciiError);
+            return Err(Error::Ascii);
         }
 
         let bs = s.as_bytes();
-        let si = memchr::memmem::find(bs, b"://");
-        if si.is_none() {
-            return Err(ParseError::SchemeError);
-        }
-        let si = si.unwrap();
-        let scheme = (0,si);
+        let si = memchr::memmem::find(bs, b"://").ok_or(Error::Scheme)?;
+        let scheme = (0,si as u16);
         let hi = si + 3;
 
-        let hj = memchr::memchr(b'/', &bs[hi..]);
-        if hj.is_none() {
-            return Err(ParseError::HostError);
-        }
-        let hj = hi + hj.unwrap();
+        let hj = memchr::memchr(b'/', &bs[hi..]).ok_or(Error::Host)?;
+        let hj = hi + hj;
         let pk = memchr::memchr(b':', &bs[hi..hj]);
         let port = pk.and_then(|k| (&s[hi + k..hj]).parse::<u16>().ok());
 
-        let l = pk.unwrap_or(hj);
-        let host = (hi,l);
+        let l = pk.unwrap_or(hj) as u16;
+        let host = (hi as u16,l);
 
-        let i = hj;
-        let j = bs.len();
+        let i = hj as u16;
+        let j = bs.len() as u16;
 
         let path = (i,j);
 
@@ -66,20 +60,20 @@ impl Url {
     }
 
     pub fn host_str(&self) -> &str {
-        let i = self.host.0;
-        let j = self.host.1;
+        let i = self.host.0 as usize;
+        let j = self.host.1 as usize;
         &self.serialization[i..j]
     }
 
     pub fn scheme(&self) -> &str {
-        let i = self.scheme.0;
-        let j = self.scheme.1;
+        let i = self.scheme.0 as usize;
+        let j = self.scheme.1 as usize;
         &self.serialization[i..j]
     }
 
     pub fn path(&self) -> &str {
-        let i = self.path.0;
-        let j = self.path.1;
+        let i = self.path.0 as usize;
+        let j = self.path.1 as usize;
         &self.serialization[i..j]
     }
 
@@ -92,4 +86,5 @@ impl Url {
 
         self.port.unwrap_or(v)
     }
+
 }

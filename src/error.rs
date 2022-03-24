@@ -1,5 +1,5 @@
 //use url::{ParseError, Url};
-use crate::url::{ParseError, Url};
+use crate::url::{Error as ParseError, Url};
 
 use std::error;
 use std::fmt::{self, Display};

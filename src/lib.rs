@@ -57,12 +57,6 @@
 //! `ureq = { version = "*", features = ["json", "charset"] }`
 //!
 //! * `tls` enables https. This is enabled by default.
-//! * `cookies` enables cookies.
-//! * `json` enables [Response::into_json()] and [Request::send_json()] via serde_json.
-//! * `charset` enables interpreting the charset part of the Content-Type header
-//!    (e.g.  `Content-Type: text/plain; charset=iso-8859-1`). Without this, the
-//!    library defaults to Rust's built in `utf-8`.
-//! * `socks-proxy` enables proxy config using the `socks4://`, `socks4a://`, `socks5://` and `socks://` (equal to `socks5://`) prefix.
 //!
 //! # Plain requests
 //!
@@ -73,67 +67,6 @@
 //! which follows a build pattern. The builders are finished using:
 //!
 //! * [`.call()`][Request::call()] without a request body.
-//! * [`.send()`][Request::send()] with a request body as [Read][std::io::Read] (chunked encoding support for non-known sized readers).
-//! * [`.send_string()`][Request::send_string()] body as string.
-//! * [`.send_bytes()`][Request::send_bytes()] body as bytes.
-//! * [`.send_form()`][Request::send_form()] key-value pairs as application/x-www-form-urlencoded.
-//!
-//! # JSON
-//!
-//! By enabling the `ureq = { version = "*", features = ["json"] }` feature,
-//! the library supports serde json.
-//!
-//! * [`request.send_json()`][Request::send_json()] send body as serde json.
-//! * [`response.into_json()`][Response::into_json()] transform response to json.
-//!
-//! # Content-Length and Transfer-Encoding
-//!
-//! The library will send a Content-Length header on requests with bodies of
-//! known size, in other words, those sent with
-//! [`.send_string()`][Request::send_string()],
-//! [`.send_bytes()`][Request::send_bytes()],
-//! [`.send_form()`][Request::send_form()], or
-//! [`.send_json()`][Request::send_json()]. If you send a
-//! request body with [`.send()`][Request::send()],
-//! which takes a [Read][std::io::Read] of unknown size, ureq will send Transfer-Encoding:
-//! chunked, and encode the body accordingly. Bodyless requests
-//! (GETs and HEADs) are sent with [`.call()`][Request::call()]
-//! and ureq adds neither a Content-Length nor a Transfer-Encoding header.
-//!
-//! If you set your own Content-Length or Transfer-Encoding header before
-//! sending the body, ureq will respect that header by not overriding it,
-//! and by encoding the body or not, as indicated by the headers you set.
-//!
-//!
-//! # Character encoding
-//!
-//! By enabling the `ureq = { version = "*", features = ["charset"] }` feature,
-//! the library supports sending/receiving other character sets than `utf-8`.
-//!
-//! For [`response.into_string()`][Response::into_string()] we read the
-//! header `Content-Type: text/plain; charset=iso-8859-1` and if it contains a charset
-//! specification, we try to decode the body using that encoding. In the absence of, or failing
-//! to interpret the charset, we fall back on `utf-8`.
-//!
-//! Similarly when using [`request.send_string()`][Request::send_string()],
-//! we first check if the user has set a `; charset=<whatwg charset>` and attempt
-//! to encode the request body using that.
-//!
-//!
-//! # Proxying
-//!
-//! ureq supports two kinds of proxies,  HTTP [`CONNECT`], [`SOCKS4`] and [`SOCKS5`], the former is
-//! always available while the latter must be enabled using the feature
-//! `ureq = { version = "*", features = ["socks-proxy"] }`.
-//!
-//! Proxies settings are configured on an [Agent] (using [AgentBuilder]). All request sent
-//! through the agent will be proxied.
-//!
-//! ## Example using HTTP CONNECT
-//!
-//!
-//! ## Example using SOCKS5
-//!
 //!
 //! # Blocking I/O for simplicity
 //!
@@ -156,24 +89,7 @@
 //! an async API and a blocking API, but we want to offer a blocking API without pulling in all
 //! the dependencies required by an async API.
 //!
-//! [async]: https://rust-lang.github.io/async-book/01_getting_started/02_why_async.html
-//! [async-std]: https://github.com/async-rs/async-std#async-std
-//! [tokio]: https://github.com/tokio-rs/tokio#tokio
-//! [what-color]: https://journal.stuffwithstuff.com/2015/02/01/what-color-is-your-function/
-//! [`CONNECT`]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/CONNECT
-//! [`SOCKS4`]: https://en.wikipedia.org/wiki/SOCKS#SOCKS4
-//! [`SOCKS5`]: https://en.wikipedia.org/wiki/SOCKS#SOCKS5
 //!
-//! ------------------------------------------------------------------------------
-//!
-//! Ureq is inspired by other great HTTP clients like
-//! [superagent](http://visionmedia.github.io/superagent/) and
-//! [the fetch API](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API).
-//!
-//! If ureq is not what you're looking for, check out these other Rust HTTP clients:
-//! [surf](https://crates.io/crates/surf), [reqwest](https://crates.io/crates/reqwest),
-//! [isahc](https://crates.io/crates/isahc), [attohttpc](https://crates.io/crates/attohttpc),
-//! [actix-web](https://crates.io/crates/actix-web), and [hyper](https://crates.io/crates/hyper).
 //!
 
 mod agent;
@@ -192,18 +108,12 @@ mod url;
 //mod testserver;
 
 pub use crate::agent::Agent;
-pub use crate::agent::AgentBuilder;
 pub use crate::error::{Error, ErrorKind, OrAnyStatus, Transport};
 pub use crate::request::Request;
 pub use crate::response::Response;
 pub use crate::stream::Stream;
 
 pub type Result<T> = std::result::Result<T, Error>;
-
-/// Creates an [AgentBuilder].
-pub fn builder() -> AgentBuilder {
-    AgentBuilder::new()
-}
 
 // is_test returns false so long as it has only ever been called with false.
 // If it has ever been called with true, it will always return true after that.
@@ -215,8 +125,8 @@ pub fn builder() -> AgentBuilder {
 #[doc(hidden)]
 
 /// Agents are used to hold configuration and keep state between requests.
-pub fn agent() -> Agent {
-    AgentBuilder::new().build()
+fn agent() -> Agent {
+    Agent::build()
 }
 
 /// Make a GET request.

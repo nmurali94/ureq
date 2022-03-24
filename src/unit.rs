@@ -13,60 +13,23 @@ use crate::Agent;
 /// *Internal API*
 pub(crate) struct Unit {
     pub agent: Agent,
-    pub method: String,
     pub url: Url,
-}
-pub(crate) struct GetUnits<'a> {
-    pub agent: Agent,
-    pub urls: &'a [Url],
 }
 
 impl Unit {
-    //
-
     pub(crate) fn new(
-        agent: &Agent,
-        method: &str,
-        url: &Url,
+        agent: Agent,
+        url: Url,
     ) -> Self {
-        //
-
         Unit {
-            agent: agent.clone(),
-            method: method.to_string(),
-            url: url.clone(),
+            agent,
+            url,
         }
     }
-}
 
-impl<'a> GetUnits<'a> {
-
-    pub(crate) fn new(
-        agent: &Agent,
-        urls: &'a [Url],
-    ) -> Self {
-        //
-
-        GetUnits {
-            agent: agent.clone(),
-            urls,
-        }
-    }
-}
-/// Perform a connection. Follows redirects.
-pub(crate) fn connect_v2(
-    units: GetUnits,
-) -> Result<Vec<Stream>, Error> {
-    //let mut history = HistoryVec::new();
-	connect_sockets(&units)
-}
-
-/// Perform a connection. Follows redirects.
-pub(crate) fn connect(
-    unit: Unit,
-) -> Result<Response, Error> {
-    //let mut history = HistoryVec::new();
-        let resp = connect_inner(unit)?;
+    /// Perform a connection. Follows redirects.
+    pub(crate) fn connect(&self) -> Result<Response, Error> {
+        let resp = self.connect_inner()?;
 
         let (_version, status, _text) = resp.get_status_line()?;
         // handle redirects
@@ -74,72 +37,56 @@ pub(crate) fn connect(
             println!("Resp {:?}", resp);
             return Err(ErrorKind::TooManyRedirects.new());
         }
-    Ok(resp)
-}
-
-/// Perform a connection. Does not follow redirects.
-fn connect_inner(
-    unit: Unit,
-) -> Result<Response, Error> {
-    // open socket
-    let mut stream = connect_socket(&unit)?;
-
-    let send_result = send_request(&unit.url, &unit.agent, &mut stream);
-
-    if let Err(err) = send_result {
-        // not a pooled connection, propagate the error.
-        return Err(err.into());
+        Ok(resp)
     }
 
-    // start reading the response to process cookies and redirects.
-    let result = Response::do_from_stream(stream);
+    /// Perform a connection. Does not follow redirects.
+    fn connect_inner(&self) -> Result<Response, Error> {
+        // open socket
+        let mut stream = self.connect_socket()?;
 
-    // https://tools.ietf.org/html/rfc7230#section-6.3.1
-    // When an inbound connection is closed prematurely, a client MAY
-    // open a new connection and automatically retransmit an aborted
-    // sequence of requests if all of those requests have idempotent
-    // methods.
-    //
-    // We choose to retry only requests that used a recycled connection
-    // from the ConnectionPool, since those are most likely to have
-    // reached a server-side timeout. Note that this means we may do
-    // up to N+1 total tries, where N is max_idle_connections_per_host.
-    let resp = match result {
-        Err(e) => return Err(e),
-        Ok(resp) => resp,
-    };
+        let send_result = send_request(&self.url, &self.agent, &mut stream);
 
-    // release the response
-    Ok(resp)
-}
+        if let Err(err) = send_result {
+            // not a pooled connection, propagate the error.
+            return Err(err.into());
+        }
 
-/// Connect the socket, either by using the pool or grab a new one.
-fn connect_sockets(units: &GetUnits) -> Result<Vec<Stream>, Error> {
-	let p: Vec<_> = units.urls.iter().map(|u| if u.scheme() == "https" { 443 } else { 80 }).collect();
-	let streams = stream::connect_http_v2(&units.urls, p.as_slice())?;
-	let mut ss = Vec::new();
-	for (i, (stream, url)) in streams.into_iter().zip(units.urls.iter()).enumerate() {
-		let s = if url.scheme() == "https" {
-			stream::connect_https_v2(stream, units.urls[i].host_str(), &units.agent)?
-		} else {
-			Stream::from_tcp_stream(stream)
-		};
-		ss.push(s);
-	}
-	Ok(ss)
-}
-/// Connect the socket, either by using the pool or grab a new one.
-fn connect_socket(unit: &Unit) -> Result<Stream, Error> {
-    match unit.url.scheme() {
-        "http" | "https" => (),
-        scheme => return Err(ErrorKind::UnknownScheme.msg(&format!("unknown scheme '{}'", scheme))),
-    };
-    let stream = match unit.url.scheme() {
-        "http" => stream::connect_http(unit),
-        "https" => stream::connect_https(unit),
-        scheme => Err(ErrorKind::UnknownScheme.msg(&format!("unknown scheme {}", scheme))),
-    }?;
-    Ok(stream)
+        // start reading the response to process cookies and redirects.
+        let result = Response::do_from_stream(stream);
+
+        // https://tools.ietf.org/html/rfc7230#section-6.3.1
+        // When an inbound connection is closed prematurely, a client MAY
+        // open a new connection and automatically retransmit an aborted
+        // sequence of requests if all of those requests have idempotent
+        // methods.
+        //
+        // We choose to retry only requests that used a recycled connection
+        // from the ConnectionPool, since those are most likely to have
+        // reached a server-side timeout. Note that this means we may do
+        // up to N+1 total tries, where N is max_idle_connections_per_host.
+        let resp = match result {
+            Err(e) => return Err(e),
+            Ok(resp) => resp,
+        };
+
+        // release the response
+        Ok(resp)
+    }
+
+    /// Connect the socket, either by using the pool or grab a new one.
+    fn connect_socket(&self) -> Result<Stream, Error> {
+        match self.url.scheme() {
+            "http" | "https" => (),
+            scheme => return Err(ErrorKind::UnknownScheme.msg(&format!("unknown scheme '{}'", scheme))),
+        };
+        let stream = match self.url.scheme() {
+            "http" => stream::connect_http(self),
+            "https" => stream::connect_https(self),
+            scheme => Err(ErrorKind::UnknownScheme.msg(&format!("unknown scheme {}", scheme))),
+        }?;
+        Ok(stream)
+    }
 }
 
 /// Send request line + headers (all up until the body).
@@ -158,7 +105,7 @@ pub(crate) fn send_request(url: &Url, agent: &Agent, stream: &mut Stream) -> io:
     let _ = v.try_extend_from_slice(b"\r\n");
 
     let _ = v.try_extend_from_slice(b"User-Agent: ");
-    let _ = v.try_extend_from_slice(agent.config.user_agent.as_bytes());
+    let _ = v.try_extend_from_slice(agent.user_agent.as_bytes());
     let _ = v.try_extend_from_slice(b"\r\n");
 
     // finish
@@ -174,4 +121,19 @@ pub(crate) fn send_request(url: &Url, agent: &Agent, stream: &mut Stream) -> io:
     // write all to the wire
 
     Ok(())
+}
+
+pub(crate) fn connect_v2(agent: &Agent, urls: &[Url]) -> Result<Vec<Stream>, Error> {
+    let p: Vec<_> = urls.iter().map(|u| if u.scheme() == "https" { 443 } else { 80 }).collect();
+    let streams = stream::connect_http_v2(urls, p.as_slice())?;
+    let mut ss = Vec::new();
+    for (i, (stream, url)) in streams.into_iter().zip(urls.iter()).enumerate() {
+        let s = if url.scheme() == "https" {
+            stream::connect_https_v2(stream, urls[i].host_str(), agent)?
+        } else {
+            Stream::from_tcp_stream(stream)
+        };
+        ss.push(s);
+    }
+    Ok(ss)
 }

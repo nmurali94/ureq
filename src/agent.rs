@@ -1,56 +1,34 @@
+#[cfg(feature = "tls")]
+use once_cell::sync::Lazy;
 use std::sync::Arc;
 
-use crate::request::{Request, GetRequests};
+use crate::request::{Request, call_urls};
 use crate::{error::Error};
 use crate::stream::Stream;
 use crate::response::Response;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Accumulates options towards building an [Agent].
-#[derive(Debug)]
-pub struct AgentBuilder {
-    config: AgentConfig,
-}
-
 /// Config as built by AgentBuilder and then static for the lifetime of the Agent.
-#[derive(Debug, Clone)]
-pub(crate) struct AgentConfig {
-    pub user_agent: String,
-    #[cfg(feature = "tls")]
-    pub tls_config: Option<TLSClientConfig>,
-}
-
-/// can keep a state.
-///
-///
-/// Agent uses an inner Arc, so cloning an Agent results in an instance
-/// that shares the same underlying connection pool and other state.
-#[derive(Debug, Clone)]
 pub struct Agent {
-    pub(crate) config: Arc<AgentConfig>,
+    pub user_agent: Arc<str>,
+    #[cfg(feature = "tls")]
+    pub tls_config: Arc<rustls::ClientConfig>,
 }
 
 /// Container of the state
 ///
-/// *Internal API*.
-#[derive(Debug)]
-pub(crate) struct AgentState {
-}
 
 impl Agent {
     /// Make a GET request from this agent.
     pub fn get(&self, path: &str) -> Result<Request> {
-        let agent = AgentBuilder::new().build();
-        Request::new(agent, "GET", path)
+        let agent = Agent::build();
+        Request::new(agent, path)
     }
     /// Make a GET request from this agent.
     pub fn get_multiple(&self, urls: Vec<String>) -> Result<Vec<Stream>> {
-        let agent = AgentBuilder::new().build();
-        let gr = GetRequests{
-			agent
-		};
-		gr.call(urls)
+        let agent = Agent::build();
+		call_urls(agent, urls)
     }
     /// Make a GET request from this agent.
     pub fn get_response(&self, stream: Stream) -> Result<Response> {
@@ -58,37 +36,36 @@ impl Agent {
     }
 }
 
-impl AgentBuilder {
-    pub fn new() -> Self {
-        AgentBuilder {
-            config: AgentConfig {
-                user_agent: "ureq/2.3.1".into(),
-                #[cfg(feature = "tls")]
-                tls_config: None,
-            },
-        }
-    }
-
-    /// Create a new agent.
-    // Note: This could take &self as the first argument, allowing one
-    // AgentBuilder to be used multiple times, except CookieStore does
-    // not implement clone, so we have to give ownership to the newly
-    // built Agent.
-    pub fn build(self) -> Agent {
+impl Agent {
+    pub fn build() -> Agent {
         Agent {
-            config: Arc::new(self.config),
-        }
+                user_agent: Arc::from("ureq/2.3.1"),
+                #[cfg(feature = "tls")]
+                tls_config: TLS_CONF.clone(),
+            }
+        
     }
 }
 
 #[cfg(feature = "tls")]
-#[derive(Clone)]
-pub(crate) struct TLSClientConfig(pub(crate) Arc<rustls::ClientConfig>);
+static TLS_CONF: Lazy<Arc<rustls::ClientConfig>> = Lazy::new(|| {
+    let mut root_store = rustls::RootCertStore::empty();
+    #[cfg(not(feature = "native-tls"))]
+    root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
+        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+            ta.subject,
+            ta.spki,
+            ta.name_constraints,
+        )
+    }));
+    #[cfg(feature = "native-tls")]
+    root_store.add_server_trust_anchors(
+        rustls_native_certs::load_native_certs().expect("Could not load platform certs"),
+    );
 
-#[cfg(feature = "tls")]
-impl std::fmt::Debug for TLSClientConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TLSClientConfig").finish()
-    }
-}
-
+    let config = rustls::ClientConfig::builder()
+        .with_safe_defaults()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+    Arc::new(config)
+});

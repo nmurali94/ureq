@@ -128,41 +128,12 @@ pub(crate) fn connect_http_v2(urls: &[Url], ports: &[u16]) -> Result<Vec<TcpStre
 }
 
 #[cfg(feature = "tls")]
-use once_cell::sync::Lazy;
-#[cfg(feature = "tls")]
 use std::{convert::TryFrom, sync::Arc};
-#[cfg(feature = "tls")]
-static TLS_CONF: Lazy<Arc<rustls::ClientConfig>> = Lazy::new(|| {
-    let mut root_store = rustls::RootCertStore::empty();
-    #[cfg(not(feature = "native-tls"))]
-    root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
-        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-            ta.subject,
-            ta.spki,
-            ta.name_constraints,
-        )
-    }));
-    #[cfg(feature = "native-tls")]
-    root_store.add_server_trust_anchors(
-        rustls_native_certs::load_native_certs().expect("Could not load platform certs"),
-    );
-
-    let config = rustls::ClientConfig::builder()
-        .with_safe_defaults()
-        .with_root_certificates(root_store)
-        .with_no_client_auth();
-    Arc::new(config)
-});
 
 #[cfg(feature = "tls")]
 pub(crate) fn connect_https_v2(mut sock: TcpStream, hostname: &str, agent: &Agent) -> Result<Stream, Error> {
 
-    let tls_conf: Arc<rustls::ClientConfig> = agent
-        .config
-        .tls_config
-        .as_ref()
-        .map(|c| c.0.clone())
-        .unwrap_or_else(|| TLS_CONF.clone());
+    let tls_conf: Arc<rustls::ClientConfig> = agent.tls_config.clone();
     let mut sess = rustls::ClientConnection::new(
         tls_conf,
         rustls::ServerName::try_from(hostname).map_err(|_e| ErrorKind::Dns.new())?,
@@ -188,7 +159,7 @@ pub(crate) fn connect_https(unit: &Unit) -> Result<Stream, Error> {
 
     let server_name = rustls::ServerName::try_from(hostname).map_err(|_e| ErrorKind::Dns.new())?;
     let mut sess = rustls::ClientConnection::new(
-        TLS_CONF.clone(),
+        unit.agent.tls_config.clone(),
         server_name,
     ).map_err(|e| ErrorKind::Io.new().src(e))?;
     // TODO rustls 0.20.1: Add src to ServerName error (0.20 didn't implement StdError trait for it)

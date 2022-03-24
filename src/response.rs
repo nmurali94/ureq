@@ -33,12 +33,8 @@ type CarryOver = arrayvec::ArrayVec<u8, 2048>;
 pub struct Response {
     status_line: StatusVec,
     headers: Headers,
-    // Boxed to avoid taking up too much size.
-    //unit: Unit,
-    // Boxed to avoid taking up too much size.
     stream: Stream,
     carryover: CarryOver,
-    //pub(crate) history: HistoryVec,
 }
 
 impl fmt::Debug for Response {
@@ -55,18 +51,6 @@ impl fmt::Debug for Response {
 }
 
 impl Response {
-    /// Construct a response with a status, status text and a string body.
-    ///
-    /// This is hopefully useful for unit tests.
-    ///
-    /// Example:
-    ///
-    /*
-    pub fn new(status: u16, status_text: &str, body: &str) -> Result<Response, Error> {
-        let r = format!("HTTP/1.1 {} {}\r\n\r\n{}", status, status_text, body);
-        (r.as_ref() as &str).parse()
-    }
-    */
 
     pub fn get_status_line(&self) -> Result<(&str, u16, &str), Error> {
         parse_status_line_from_header(&self.status_line)
@@ -186,7 +170,7 @@ impl Response {
 // HTTP/1.1 200 OK\r\n
 fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, u16, &str), Error> {
     if s.len() < 12 {
-        return Err(BadStatus.msg("Status line isn't formatted correctly"));
+        Err(BadStatus.msg("Status line isn't formatted correctly"))
     }
     else if b"HTTP/1.1 " != &s[..9] {
         Err(BadStatus.msg("HTTP version not formatted correctly"))
@@ -197,13 +181,13 @@ fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, u16, &str), Error> {
     else {
 		let status = ((s[9] - b'0') as u16 * 100)  + (s[10] - b'0') as u16 * 10 + (s[11] - b'0') as u16 * 1;
         std::str::from_utf8(&s[12..]).map_err(|_| BadStatus.new())
-			.and_then(|text| {
-	        Ok((
+			.map(|text| {
+	        (
 	            "HTTP/1.1",
 	            status,
 	            text,
 	            
-	        ))
+	        )
 		})
     }
 }
@@ -215,35 +199,32 @@ fn read_status_and_headers(reader: &mut impl Read) -> io::Result<(BufVec, CarryO
     let mut carry = 0;
 
     loop {
-            let r = reader.read(&mut buffer[carry..]);
+        let r = reader.read(&mut buffer[carry..]);
 
-            let mut c = match r {
-                Ok(n) => n,
-                Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(e),
-            };
-            if c == 0 {
+        let mut c = match r {
+            Ok(n) => n,
+            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        if c == 0 {
+            break;
+        }
+        c += carry;
+        let crlf = memchr::memmem::find(&buffer[..c], b"\r\n\r\n");
+        match crlf {
+            Some(i) => {
+                let _ = buf.try_extend_from_slice(&buffer[..i+2]);
+                buffer.copy_within(i+4..c, 0);
+                carry = c - i - 4;
                 break;
             }
-            c += carry;
-            let crlf = memchr::memmem::find(&buffer[..c], b"\r\n\r\n");
-            match crlf {
-                Some(i) => {
-                    let _ = buf.try_extend_from_slice(&buffer[..i+2]);
-                    buffer.copy_within(i+4..c, 0);
-                    //println!("Buffer state {}", std::str::from_utf8(&buffer[..(c - i - 4)]).unwrap());
-                    carry = c - i - 4;
-                    break;
-                }
-                None => {
-                    let _ = buf.try_extend_from_slice(&buffer[..c - 3]);
-                    buffer.copy_within(c - 3..c, 0);
-                    carry = 3;
-                }
+            None => {
+                let _ = buf.try_extend_from_slice(&buffer[..c - 3]);
+                buffer.copy_within(c - 3..c, 0);
+                carry = 3;
             }
+        }
     }
-
-    //println!("Header segment size: {}", std::str::from_utf8(&buffer).unwrap());
 
     let mut carryover = CarryOver::new_const();
     let _ = carryover.try_extend_from_slice(&buffer[..carry]).unwrap();
