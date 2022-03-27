@@ -11,7 +11,7 @@ use crate::Response;
 pub enum Error {
     /// A response was successfully received but had status code >= 400.
     /// Values are (status_code, Response).
-    Status(u16, Response),
+    Status(u16, Box<Response>),
     /// There was an error making the request or receiving the response.
     Transport(Transport),
 }
@@ -41,7 +41,7 @@ impl OrAnyStatus for Result<Response, Error> {
     fn or_any_status(self) -> Result<Response, Transport> {
         match self {
             Ok(response) => Ok(response),
-            Err(Error::Status(_, response)) => Ok(response),
+            Err(Error::Status(_, response)) => Ok(*response),
             Err(Error::Transport(transport)) => Err(transport),
         }
     }
@@ -106,7 +106,7 @@ impl Error {
         })
     }
 
-    pub(crate) fn url(self, url: Url) -> Self {
+    pub(crate) fn _url(self, url: Url) -> Self {
         if let Error::Transport(mut e) = self {
             e.url = Some(url);
             Error::Transport(e)
@@ -181,7 +181,7 @@ impl ErrorKind {
 impl From<Response> for Error {
     fn from(resp: Response) -> Error {
         let (_v, s, _t) = resp.get_status_line().unwrap();
-        Error::Status(s, resp)
+        Error::Status(s, Box::new(resp))
     }
 }
 

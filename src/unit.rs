@@ -34,7 +34,6 @@ impl Unit {
         let (_version, status, _text) = resp.get_status_line()?;
         // handle redirects
         if (300..399).contains(&status) {
-            println!("Resp {:?}", resp);
             return Err(ErrorKind::TooManyRedirects.new());
         }
         Ok(resp)
@@ -53,25 +52,7 @@ impl Unit {
         }
 
         // start reading the response to process cookies and redirects.
-        let result = Response::do_from_stream(stream);
-
-        // https://tools.ietf.org/html/rfc7230#section-6.3.1
-        // When an inbound connection is closed prematurely, a client MAY
-        // open a new connection and automatically retransmit an aborted
-        // sequence of requests if all of those requests have idempotent
-        // methods.
-        //
-        // We choose to retry only requests that used a recycled connection
-        // from the ConnectionPool, since those are most likely to have
-        // reached a server-side timeout. Note that this means we may do
-        // up to N+1 total tries, where N is max_idle_connections_per_host.
-        let resp = match result {
-            Err(e) => return Err(e),
-            Ok(resp) => resp,
-        };
-
-        // release the response
-        Ok(resp)
+         Response::do_from_stream(stream)
     }
 
     /// Connect the socket, either by using the pool or grab a new one.
@@ -111,14 +92,8 @@ pub(crate) fn send_request(url: &Url, agent: &Agent, stream: &mut Stream) -> io:
     // finish
 
     let _ = v.try_extend_from_slice(b"\r\n");
-    /*
-    let mut arr = [0u8; 2048];
-    let c = (&mut arr[..]).write_vectored(&v)?;
-    println!("Arr \n{}", std::str::from_utf8(&arr[..c]).unwrap());
-    */
 
     stream.write_all(&v)?;
-    // write all to the wire
 
     Ok(())
 }

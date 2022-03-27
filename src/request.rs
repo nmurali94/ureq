@@ -50,7 +50,7 @@ impl Request {
         let (_version, status, _text) = response.get_status_line()?;
 
         if status >= 400 {
-            Err(Error::Status(status, response))
+            Err(Error::Status(status, Box::new(response)))
         } else {
             Ok(response)
         }

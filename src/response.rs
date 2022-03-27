@@ -2,7 +2,6 @@ use std::io::{self, Read};
 use std::{fmt};
 
 use chunked_transfer::Decoder as ChunkDecoder;
-//use url::Url;
 
 use crate::error::{Error, ErrorKind::BadStatus};
 use crate::header::{Headers};
@@ -16,7 +15,6 @@ use std::convert::TryFrom;
 /// The `Response` is used to read response headers and decide what to do with the body.
 /// Note that the socket connection is open and the body not read until one of
 /// [`into_reader()`](#method.into_reader), [`into_json()`](#method.into_json), or
-/// [`into_string()`](#method.into_string) consumes the response.
 ///
 /// When dropping a `Response` instance, one one of two things can happen. If
 /// the response has unread bytes, the underlying socket cannot be reused,
@@ -128,19 +126,6 @@ impl Response {
         }
     }
 
-    /// Create a response from a Read trait impl.
-    ///
-    /// This is hopefully useful for unit tests.
-    ///
-    /// Example:
-    ///
-    /// use std::io::Cursor;
-    ///
-    /// let text = "HTTP/1.1 401 Authorization Required\r\n\r\nPlease log in\n";
-    /// let read = Cursor::new(text.to_string().into_bytes());
-    /// let resp = ureq::Response::do_from_read(read);
-    ///
-    /// assert_eq!(resp.status(), 401);
     pub(crate) fn do_from_stream(stream: Stream) -> Result<Response, Error> {
         //
         // HTTP/1.1 200 OK\r\n
@@ -151,7 +136,7 @@ impl Response {
         let (mut headers, carryover) = read_status_and_headers(&mut stream)?;
 
         let i = memchr::memchr(b'\n', &headers)
-		.ok_or(ErrorKind::BadStatus.msg("Missing Status Line"))?;
+		    .ok_or_else(||ErrorKind::BadStatus.msg("Missing Status Line"))?;
         let status_line: StatusVec = headers.drain(..i+1).collect();
         //println!("Status: {}", std::str::from_utf8(&status_line).unwrap());
 
@@ -179,7 +164,7 @@ fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, u16, &str), Error> {
         Err(BadStatus.msg("HTTP status code must be a 3 digit number"))
     }
     else {
-		let status = ((s[9] - b'0') as u16 * 100)  + (s[10] - b'0') as u16 * 10 + (s[11] - b'0') as u16 * 1;
+		let status = ((s[9] - b'0') as u16 * 100)  + (s[10] - b'0') as u16 * 10 + (s[11] - b'0') as u16;
         std::str::from_utf8(&s[12..]).map_err(|_| BadStatus.new())
 			.map(|text| {
 	        (
