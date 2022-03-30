@@ -1,6 +1,5 @@
 use std::io::{self, Write};
 
-//use url::Url;
 use crate::url::Url;
 
 use crate::error::{Error, ErrorKind};
@@ -17,10 +16,7 @@ pub(crate) struct Unit {
 }
 
 impl Unit {
-    pub(crate) fn new(
-        agent: Agent,
-        url: Url,
-    ) -> Self {
+    pub(crate) fn new(agent: Agent, url: Url) -> Self {
         Unit {
             agent,
             url,
@@ -34,9 +30,10 @@ impl Unit {
         let (_version, status, _text) = resp.get_status_line()?;
         // handle redirects
         if (300..399).contains(&status) {
-            return Err(ErrorKind::TooManyRedirects.new());
+            Err(ErrorKind::TooManyRedirects.new())
+        } else {
+            Ok(resp)
         }
-        Ok(resp)
     }
 
     /// Perform a connection. Does not follow redirects.
@@ -48,11 +45,12 @@ impl Unit {
 
         if let Err(err) = send_result {
             // not a pooled connection, propagate the error.
-            return Err(err.into());
-        }
+            Err(err.into())
+        } else {
 
-        // start reading the response to process cookies and redirects.
-         Response::do_from_stream(stream)
+            // start reading the response to process cookies and redirects.
+            Response::do_from_stream(stream)
+        }
     }
 
     /// Connect the socket, either by using the pool or grab a new one.

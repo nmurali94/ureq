@@ -18,7 +18,7 @@ pub enum Error {
 }
 
 impl Url {
-    pub fn parse(s: String) -> Result<Self, Error> {
+    pub fn parse(s: &str) -> Result<Self, Error> {
         if !s.is_ascii() {
             return Err(Error::Ascii);
         }
@@ -42,7 +42,7 @@ impl Url {
         let path = (i,j);
 
         let url = Url {
-            serialization: s,
+            serialization: s.to_string(),
             scheme,
             host,
             port,
@@ -57,6 +57,9 @@ impl Url {
         */
 
         Ok(url)
+    }
+    pub fn serialization(&self) -> &str {
+        self.serialization.as_str()
     }
 
     pub fn host_str(&self) -> &str {

@@ -24,15 +24,13 @@ use std::convert::TryFrom;
 ///
 
 type StatusVec = arrayvec::ArrayVec<u8, 32>;
-//type HistoryVec = arrayvec::ArrayVec<Url, 8>;
 type BufVec = arrayvec::ArrayVec<u8, 2048>;
 type CarryOver = arrayvec::ArrayVec<u8, 2048>;
 
 pub struct Response {
     status_line: StatusVec,
     headers: Headers,
-    stream: Stream,
-    carryover: CarryOver,
+    reader: ComboReader,
 }
 
 impl fmt::Debug for Response {
@@ -83,7 +81,7 @@ impl Response {
     ///
     /// Example:
     ///
-    pub fn into_reader(self) -> (impl Read + Send, CarryOver) {
+    pub fn into_reader(self) -> Box<dyn Read + Send + Sync> {
         //
         let (http_version, status, _status_text) = self.get_status_line().unwrap();
         let is_http10 = http_version.eq_ignore_ascii_case("HTTP/1.0");
@@ -115,24 +113,17 @@ impl Response {
         };
         //println!("Limit = {} {:?}, {}", use_chunked, limit_bytes, self.carryover.len());
 
-        let stream = self.stream;
 
         match (use_chunked, limit_bytes) {
-            (true, _) => (Box::new(ChunkDecoder::new(stream)) as Box<dyn Read + Send>, self.carryover),
-            (false, Some(len)) => {
-                (Box::new(stream.take((len - self.carryover.len()) as u64)) as Box<dyn Read + Send>, self.carryover)
-            }
-            (false, None) => (Box::new(stream) as Box<dyn Read + Send>, self.carryover),
+            (true, _) => Box::new(ChunkDecoder::new(self.reader)),
+            (false, Some(len)) => Box::new(self.reader.take(len as u64)),
+            (false, None) => Box::new(self.reader),
         }
     }
 
-    pub(crate) fn do_from_stream(stream: Stream) -> Result<Response, Error> {
+    pub(crate) fn do_from_stream(mut stream: Stream) -> Result<Response, Error> {
         //
         // HTTP/1.1 200 OK\r\n
-        //let mut stream = BufReader::with_capacity(4096, stream);
-        let mut stream = stream;
-
-        // The status line we can ignore non-utf8 chars and parse as_str_lossy().
         let (mut headers, carryover) = read_status_and_headers(&mut stream)?;
 
         let i = memchr::memchr(b'\n', &headers)
@@ -143,12 +134,40 @@ impl Response {
         //println!("Headers: {}", std::str::from_utf8(&headers).unwrap());
         let headers = Headers::try_from(headers)?;
 
+        let reader = ComboReader::new(carryover, stream);
+
         Ok(Response {
             status_line,
             headers,
-            stream,
-            carryover,
+            reader,
         })
+    }
+}
+
+struct ComboReader {
+    co: CarryOver,
+    st: Stream,
+}
+
+impl ComboReader {
+    fn new(a: CarryOver, b: Stream) -> Self {
+        ComboReader {
+            co: a,
+            st: b,
+        }
+    }
+} 
+
+impl Read for ComboReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let c = self.co.as_slice().read(buf)?;
+        if c == 0 {
+            self.st.read(buf)
+        }
+        else { 
+            let _ = self.co.drain(..c);
+            Ok(c)
+        }
     }
 }
 

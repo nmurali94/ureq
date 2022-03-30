@@ -20,11 +20,12 @@ impl <const N: usize> TryFrom<arrayvec::ArrayVec<u8, N>> for Headers {
 			if end - start > 128 {
 				return Err(ErrorKind::BadHeader.msg("HTTP header size larger than supported"));
 			}
-            let colon = memchr::memchr(b':', &v[start..end]).ok_or_else(||ErrorKind::BadHeader.msg("HTTP header must be a key-value separated by a colon"))?;
+            let colon = memchr::memchr(b':', &v[start..end])
+                .ok_or_else(|| ErrorKind::BadHeader.msg("HTTP header must be a key-value separated by a colon"))?;
             let mut data = [0; 128];
 			data[..(end-start)].copy_from_slice(&v[start..end]);
 			let h = Header {
-				meta: ((colon) << 16) | (end - start),
+				meta: ((colon & 0xFFFF) << 16) | ((end - start) & 0xFFFF),
 				data,
 			};
 			map.push(h);

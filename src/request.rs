@@ -13,10 +13,7 @@ pub struct Request {
     url: Url,
 }
 
-pub(crate) fn call_urls(agent: Agent, urls: Vec<String>) -> Result<Vec<Stream>> {
-    let urls: Vec<_> = urls.into_iter()
-        .filter_map(|url| Url::parse(url).map_err(|_e| ErrorKind::HTTP.new()).ok())
-        .collect();
+pub(crate) fn call_urls(agent: Agent, urls: Vec<Url>) -> Result<Vec<Stream>> {
 
     let mut streams = connect_v2(&agent, urls.as_slice())?;
     for (url, stream) in urls.iter().zip(streams.iter_mut()) {
@@ -27,7 +24,7 @@ pub(crate) fn call_urls(agent: Agent, urls: Vec<String>) -> Result<Vec<Stream>> 
 
 impl Request {
     pub(crate) fn new(agent: Agent, url: &str) -> Result<Request> {
-        let url = Url::parse(url.to_owned()).map_err(|_e| ErrorKind::HTTP.new())?;
+        let url = Url::parse(url).map_err(|_e| ErrorKind::HTTP.new())?;
         Ok(Request {
             agent,
             url,

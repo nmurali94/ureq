@@ -96,8 +96,6 @@ mod agent;
 mod body;
 mod error;
 mod header;
-//mod pool;
-//mod proxy;
 mod request;
 mod response;
 mod stream;
@@ -105,13 +103,13 @@ mod unit;
 mod url;
 
 #[doc(hidden)]
-//mod testserver;
 
 pub use crate::agent::Agent;
 pub use crate::error::{Error, ErrorKind, OrAnyStatus, Transport};
 pub use crate::request::Request;
 pub use crate::response::Response;
 pub use crate::stream::Stream;
+pub use crate::url::Url;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -135,7 +133,7 @@ pub fn get(path: &str) -> Result<Request> {
 }
 
 /// Send a GET request.
-pub fn send_multiple(path: Vec<String>) -> Result<Vec<Stream>> {
+pub fn send_multiple(path: Vec<Url>) -> Result<Vec<Stream>> {
     agent().get_multiple(path)
 }
 

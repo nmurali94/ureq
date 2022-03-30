@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::request::{Request, call_urls};
 use crate::{error::Error};
 use crate::stream::Stream;
+use crate::url::Url;
 use crate::response::Response;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -26,7 +27,7 @@ impl Agent {
         Request::new(agent, path)
     }
     /// Make a GET request from this agent.
-    pub fn get_multiple(&self, urls: Vec<String>) -> Result<Vec<Stream>> {
+    pub fn get_multiple(&self, urls: Vec<Url>) -> Result<Vec<Stream>> {
         let agent = Agent::build();
 		call_urls(agent, urls)
     }
