@@ -61,6 +61,7 @@ impl Unit {
         };
         let stream = match self.url.scheme() {
             "http" => stream::connect_http(self),
+            #[cfg(feature = "tls")]
             "https" => stream::connect_https(self),
             scheme => Err(ErrorKind::UnknownScheme.msg(&format!("unknown scheme {}", scheme))),
         }?;
@@ -95,7 +96,15 @@ pub(crate) fn send_request(url: &Url, agent: &Agent, stream: &mut Stream) -> io:
 
     Ok(())
 }
+#[cfg(not(feature = "tls"))]
+pub(crate) fn connect_v2(_agent: &Agent, urls: &[Url]) -> Result<Vec<Stream>, Error> {
+    let p: Vec<_> = urls.iter().map(|_| 80 ).collect();
+    let streams = stream::connect_http_v2(urls, p.as_slice())?;
+    let ss = streams.into_iter().map(|stream| Stream::from_tcp_stream(stream)).collect();
+    Ok(ss)
+}
 
+#[cfg(feature = "tls")]
 pub(crate) fn connect_v2(agent: &Agent, urls: &[Url]) -> Result<Vec<Stream>, Error> {
     let p: Vec<_> = urls.iter().map(|u| if u.scheme() == "https" { 443 } else { 80 }).collect();
     let streams = stream::connect_http_v2(urls, p.as_slice())?;

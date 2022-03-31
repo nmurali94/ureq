@@ -17,6 +17,7 @@ use rustls::ClientConnection;
 use rustls::StreamOwned;
 
 use crate::{error::Error};
+#[cfg(feature = "tls")]
 use crate::Agent;
 
 use crate::error::ErrorKind;

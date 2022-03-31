@@ -40,18 +40,16 @@ impl Agent {
 impl Agent {
     pub fn build() -> Agent {
         Agent {
-                user_agent: Arc::from("ureq/2.3.1"),
-                #[cfg(feature = "tls")]
-                tls_config: TLS_CONF.clone(),
-            }
-        
+            user_agent: Arc::from("ureq/2.3.1"),
+            #[cfg(feature = "tls")]
+            tls_config: TLS_CONF.clone(),
+        }
     }
 }
 
 #[cfg(feature = "tls")]
 static TLS_CONF: Lazy<Arc<rustls::ClientConfig>> = Lazy::new(|| {
     let mut root_store = rustls::RootCertStore::empty();
-    #[cfg(not(feature = "native-tls"))]
     root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
         rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
             ta.subject,
@@ -59,10 +57,6 @@ static TLS_CONF: Lazy<Arc<rustls::ClientConfig>> = Lazy::new(|| {
             ta.name_constraints,
         )
     }));
-    #[cfg(feature = "native-tls")]
-    root_store.add_server_trust_anchors(
-        rustls_native_certs::load_native_certs().expect("Could not load platform certs"),
-    );
 
     let config = rustls::ClientConfig::builder()
         .with_safe_defaults()
