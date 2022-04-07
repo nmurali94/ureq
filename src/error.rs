@@ -180,8 +180,8 @@ impl ErrorKind {
 
 impl From<Response> for Error {
     fn from(resp: Response) -> Error {
-        let (_v, s, _t) = resp.get_status_line().unwrap();
-        Error::Status(s, Box::new(resp))
+        let (_v, s) = resp.get_status_line().unwrap();
+        Error::Status(s as u16, Box::new(resp))
     }
 }
 

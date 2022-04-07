@@ -42,15 +42,7 @@ impl Request {
             self.agent,
             self.url,
         );
-        let response = unit.connect()?; //.map_err(|e| e.url(self.url))?;
-
-        let (_version, status, _text) = response.get_status_line()?;
-
-        if status >= 400 {
-            Err(Error::Status(status, Box::new(response)))
-        } else {
-            Ok(response)
-        }
+        unit.connect()
     }
 }
 

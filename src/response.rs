@@ -6,6 +6,7 @@ use chunked_transfer::Decoder as ChunkDecoder;
 use crate::error::{Error, ErrorKind::BadStatus};
 use crate::header::{Headers};
 use crate::stream::{Stream};
+use crate::unit::{Status};
 use crate::{ErrorKind};
 
 use std::convert::TryFrom;
@@ -35,7 +36,9 @@ pub struct Response {
 
 impl fmt::Debug for Response {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let (_version, status, text) = self.get_status_line().unwrap();
+        let (_version, status) = self.get_status_line().unwrap();
+        let text = status.to_str();
+        let status = status as u16;
         write!(
             f,
             "Response[status: {}, status_text: {}",
@@ -48,7 +51,7 @@ impl fmt::Debug for Response {
 
 impl Response {
 
-    pub fn get_status_line(&self) -> Result<(&str, u16, &str), Error> {
+    pub fn get_status_line(&self) -> Result<(&str, Status), Error> {
         parse_status_line_from_header(&self.status_line)
     }
 
@@ -83,30 +86,22 @@ impl Response {
     ///
     pub fn into_reader(self) -> Box<dyn Read + Send + Sync> {
         //
-        let (http_version, status, _status_text) = self.get_status_line().unwrap();
+        let (http_version, _) = self.get_status_line().unwrap();
         let is_http10 = http_version.eq_ignore_ascii_case("HTTP/1.0");
         let is_close = self
             .header("connection")
             .map(|c| c.eq_ignore_ascii_case("close"))
             .unwrap_or(false);
 
-        let has_no_body = match status {
-                204 | 304 => true,
-                _ => false,
-            };
-
         let is_chunked = self
             .header("transfer-encoding")
             .map(|enc| !enc.is_empty()) // whatever it says, do chunked
             .unwrap_or(false);
 
-        let use_chunked = !is_http10 && !has_no_body && is_chunked;
+        let use_chunked = !is_http10 && is_chunked;
 
         let limit_bytes = if is_http10 || is_close {
             None
-        } else if has_no_body {
-            // head requests never have a body
-            Some(0)
         } else {
             self.header("content-length")
                 .and_then(|l| l.parse::<usize>().ok())
@@ -172,7 +167,7 @@ impl Read for ComboReader {
 }
 
 // HTTP/1.1 200 OK\r\n
-fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, u16, &str), Error> {
+fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, Status), Error> {
     if s.len() < 12 {
         Err(BadStatus.msg("Status line isn't formatted correctly"))
     }
@@ -184,13 +179,12 @@ fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, u16, &str), Error> {
     }
     else {
 		let status = ((s[9] - b'0') as u16 * 100)  + (s[10] - b'0') as u16 * 10 + (s[11] - b'0') as u16;
+        let status = Status::from(status);
         std::str::from_utf8(&s[12..]).map_err(|_| BadStatus.new())
-			.map(|text| {
+			.map(|_| {
 	        (
 	            "HTTP/1.1",
 	            status,
-	            text,
-	            
 	        )
 		})
     }

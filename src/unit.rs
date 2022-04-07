@@ -1,6 +1,6 @@
 use std::io::{self, Write};
 
-use crate::url::Url;
+use crate::url::{Url, Scheme};
 
 use crate::error::{Error, ErrorKind};
 use crate::response::Response;
@@ -15,6 +15,42 @@ pub(crate) struct Unit {
     pub url: Url,
 }
 
+#[derive(Clone, Copy)]
+pub enum Status {
+    Success = 200,
+    BadRequest = 400,
+    NotFound = 404,
+    InternalServerError = 500,
+    Unsupported,
+}
+
+impl From<u16> for Status {
+    fn from(n: u16) -> Self {
+        use Status::*;
+        match n {
+            200 => Success,
+            400 => BadRequest,
+            404 => NotFound,
+            500 => InternalServerError,
+            _ => Unsupported
+        }
+    }
+}
+
+impl Status {
+    pub fn to_str(self) -> &'static str {
+        use Status::*;
+        match self {
+            Success => "Ok",
+            BadRequest => "Bad Request",
+            NotFound => "Not Found",
+            InternalServerError => "Internal Server Error",
+            Unsupported => "Unknown"
+        }
+
+    }
+}
+
 impl Unit {
     pub(crate) fn new(agent: Agent, url: Url) -> Self {
         Unit {
@@ -27,12 +63,11 @@ impl Unit {
     pub(crate) fn connect(&self) -> Result<Response, Error> {
         let resp = self.connect_inner()?;
 
-        let (_version, status, _text) = resp.get_status_line()?;
+        let (_version, status) = resp.get_status_line()?;
         // handle redirects
-        if (300..399).contains(&status) {
-            Err(ErrorKind::TooManyRedirects.new())
-        } else {
-            Ok(resp)
+        match status {
+            Status::Success => Ok(resp),
+            _ => Err(ErrorKind::TooManyRedirects.new()),
         }
     }
 
@@ -56,16 +91,10 @@ impl Unit {
     /// Connect the socket, either by using the pool or grab a new one.
     fn connect_socket(&self) -> Result<Stream, Error> {
         match self.url.scheme() {
-            "http" | "https" => (),
-            scheme => return Err(ErrorKind::UnknownScheme.msg(&format!("unknown scheme '{}'", scheme))),
-        };
-        let stream = match self.url.scheme() {
-            "http" => stream::connect_http(self),
+            Scheme::Http => stream::connect_http(self),
             #[cfg(feature = "tls")]
-            "https" => stream::connect_https(self),
-            scheme => Err(ErrorKind::UnknownScheme.msg(&format!("unknown scheme {}", scheme))),
-        }?;
-        Ok(stream)
+            Scheme::Https => stream::connect_https(self),
+        }
     }
 }
 
@@ -106,14 +135,13 @@ pub(crate) fn connect_v2(_agent: &Agent, urls: &[Url]) -> Result<Vec<Stream>, Er
 
 #[cfg(feature = "tls")]
 pub(crate) fn connect_v2(agent: &Agent, urls: &[Url]) -> Result<Vec<Stream>, Error> {
-    let p: Vec<_> = urls.iter().map(|u| if u.scheme() == "https" { 443 } else { 80 }).collect();
+    let p: Vec<_> = urls.iter().map(|u| u.port()).collect();
     let streams = stream::connect_http_v2(urls, p.as_slice())?;
     let mut ss = Vec::new();
     for (i, (stream, url)) in streams.into_iter().zip(urls.iter()).enumerate() {
-        let s = if url.scheme() == "https" {
-            stream::connect_https_v2(stream, urls[i].host_str(), agent)?
-        } else {
-            Stream::from_tcp_stream(stream)
+        let s = match url.scheme() {
+            Scheme::Http => Stream::from_tcp_stream(stream),
+            Scheme::Https => stream::connect_https_v2(stream, urls[i].host_str(), agent)?,
         };
         ss.push(s);
     }
