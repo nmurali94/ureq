@@ -132,7 +132,6 @@ impl Error {
             Error::Transport(Transport { kind: k, .. }) => *k,
         }
     }
-
 }
 
 /// One of the types of error the can occur when processing a Request.
@@ -199,9 +198,8 @@ impl From<Transport> for Error {
 
 impl From<ParseError> for Error {
     fn from(err: ParseError) -> Self {
-        ErrorKind::InvalidUrl
-            .msg(&format!("failed to parse URL: {:?}", err))
-            //.src(err)
+        ErrorKind::InvalidUrl.msg(&format!("failed to parse URL: {:?}", err))
+        //.src(err)
     }
 }
 
@@ -223,4 +221,3 @@ impl fmt::Display for ErrorKind {
         }
     }
 }
-

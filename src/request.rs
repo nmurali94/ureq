@@ -1,7 +1,7 @@
-use crate::url::{Url};
+use crate::url::Url;
 
-use crate::unit::{Unit, connect_v2, send_request};
-use crate::stream::{Stream};
+use crate::stream::Stream;
+use crate::unit::{connect_v2, send_request, Unit};
 use crate::Response;
 use crate::{agent::Agent, error::Error, error::ErrorKind};
 
@@ -14,7 +14,6 @@ pub struct Request {
 }
 
 pub(crate) fn call_urls(agent: Agent, urls: Vec<Url>) -> Result<Vec<Stream>> {
-
     let mut streams = connect_v2(&agent, urls.as_slice())?;
     for (url, stream) in urls.iter().zip(streams.iter_mut()) {
         send_request(url, &agent, stream)?;
@@ -25,10 +24,7 @@ pub(crate) fn call_urls(agent: Agent, urls: Vec<Url>) -> Result<Vec<Stream>> {
 impl Request {
     pub(crate) fn new(agent: Agent, url: &str) -> Result<Request> {
         let url = Url::parse(url).map_err(|_e| ErrorKind::HTTP.new())?;
-        Ok(Request {
-            agent,
-            url,
-        })
+        Ok(Request { agent, url })
     }
 
     /// Sends the request with no body and blocks the caller until done.
@@ -38,11 +34,7 @@ impl Request {
     ///
 
     pub fn call(self) -> Result<Response> {
-        let unit = Unit::new(
-            self.agent,
-            self.url,
-        );
+        let unit = Unit::new(self.agent, self.url);
         unit.connect()
     }
 }
-

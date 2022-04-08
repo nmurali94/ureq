@@ -2,11 +2,11 @@
 use once_cell::sync::Lazy;
 use std::sync::Arc;
 
-use crate::request::{Request, call_urls};
-use crate::{error::Error};
+use crate::error::Error;
+use crate::request::{call_urls, Request};
+use crate::response::Response;
 use crate::stream::Stream;
 use crate::url::Url;
-use crate::response::Response;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -29,11 +29,11 @@ impl Agent {
     /// Make a GET request from this agent.
     pub fn get_multiple(&self, urls: Vec<Url>) -> Result<Vec<Stream>> {
         let agent = Agent::build();
-		call_urls(agent, urls)
+        call_urls(agent, urls)
     }
     /// Make a GET request from this agent.
     pub fn get_response(&self, stream: Stream) -> Result<Response> {
-		Response::do_from_stream(stream)
+        Response::do_from_stream(stream)
     }
 }
 

@@ -103,7 +103,6 @@ mod unit;
 mod url;
 
 #[doc(hidden)]
-
 pub use crate::agent::Agent;
 pub use crate::error::{Error, ErrorKind, OrAnyStatus, Transport};
 pub use crate::request::Request;
@@ -141,4 +140,3 @@ pub fn send_multiple(path: Vec<Url>) -> Result<Vec<Stream>> {
 pub fn get_response(stream: Stream) -> Result<Response> {
     agent().get_response(stream)
 }
-

@@ -1,13 +1,13 @@
+use std::fmt;
 use std::io::{self, Read};
-use std::{fmt};
 
 use chunked_transfer::Decoder as ChunkDecoder;
 
 use crate::error::{Error, ErrorKind::BadStatus};
-use crate::header::{Headers};
-use crate::stream::{Stream};
-use crate::unit::{Status};
-use crate::{ErrorKind};
+use crate::header::Headers;
+use crate::stream::Stream;
+use crate::unit::Status;
+use crate::ErrorKind;
 
 use std::convert::TryFrom;
 
@@ -39,18 +39,12 @@ impl fmt::Debug for Response {
         let (_version, status) = self.get_status_line().unwrap();
         let text = status.to_str();
         let status = status as u16;
-        write!(
-            f,
-            "Response[status: {}, status_text: {}",
-            status,
-            text,
-            )?;
+        write!(f, "Response[status: {}, status_text: {}", status, text,)?;
         write!(f, "]")
     }
 }
 
 impl Response {
-
     pub fn get_status_line(&self) -> Result<(&str, Status), Error> {
         parse_status_line_from_header(&self.status_line)
     }
@@ -64,7 +58,8 @@ impl Response {
     /// In case the header value can't be read as utf-8, this function
     /// returns `None` (while the name is visible in [`Response::headers_names()`]).
     pub fn header(&self, name: &str) -> Option<&str> {
-        self.headers.header(name)
+        self.headers
+            .header(name)
             .and_then(|s| std::str::from_utf8(s).ok())
             .map(|s| s.trim())
     }
@@ -108,7 +103,6 @@ impl Response {
         };
         //println!("Limit = {} {:?}, {}", use_chunked, limit_bytes, self.carryover.len());
 
-
         match (use_chunked, limit_bytes) {
             (true, _) => Box::new(ChunkDecoder::new(self.reader)),
             (false, Some(len)) => Box::new(self.reader.take(len as u64)),
@@ -122,8 +116,8 @@ impl Response {
         let (mut headers, carryover) = read_status_and_headers(&mut stream)?;
 
         let i = memchr::memchr(b'\n', &headers)
-		    .ok_or_else(||ErrorKind::BadStatus.msg("Missing Status Line"))?;
-        let status_line: StatusVec = headers.drain(..i+1).collect();
+            .ok_or_else(|| ErrorKind::BadStatus.msg("Missing Status Line"))?;
+        let status_line: StatusVec = headers.drain(..i + 1).collect();
         //println!("Status: {}", std::str::from_utf8(&status_line).unwrap());
 
         //println!("Headers: {}", std::str::from_utf8(&headers).unwrap());
@@ -146,20 +140,16 @@ struct ComboReader {
 
 impl ComboReader {
     fn new(a: CarryOver, b: Stream) -> Self {
-        ComboReader {
-            co: a,
-            st: b,
-        }
+        ComboReader { co: a, st: b }
     }
-} 
+}
 
 impl Read for ComboReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let c = self.co.as_slice().read(buf)?;
         if c == 0 {
             self.st.read(buf)
-        }
-        else { 
+        } else {
             let _ = self.co.drain(..c);
             Ok(c)
         }
@@ -170,23 +160,17 @@ impl Read for ComboReader {
 fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, Status), Error> {
     if s.len() < 12 {
         Err(BadStatus.msg("Status line isn't formatted correctly"))
-    }
-    else if b"HTTP/1.1 " != &s[..9] {
+    } else if b"HTTP/1.1 " != &s[..9] {
         Err(BadStatus.msg("HTTP version not formatted correctly"))
-    }
-    else if s[9..12].iter().any(|c| !c.is_ascii_digit()) || s[12] != b' ' {
+    } else if s[9..12].iter().any(|c| !c.is_ascii_digit()) || s[12] != b' ' {
         Err(BadStatus.msg("HTTP status code must be a 3 digit number"))
-    }
-    else {
-		let status = ((s[9] - b'0') as u16 * 100)  + (s[10] - b'0') as u16 * 10 + (s[11] - b'0') as u16;
+    } else {
+        let status =
+            ((s[9] - b'0') as u16 * 100) + (s[10] - b'0') as u16 * 10 + (s[11] - b'0') as u16;
         let status = Status::from(status);
-        std::str::from_utf8(&s[12..]).map_err(|_| BadStatus.new())
-			.map(|_| {
-	        (
-	            "HTTP/1.1",
-	            status,
-	        )
-		})
+        std::str::from_utf8(&s[12..])
+            .map_err(|_| BadStatus.new())
+            .map(|_| ("HTTP/1.1", status))
     }
 }
 
@@ -211,8 +195,8 @@ fn read_status_and_headers(reader: &mut impl Read) -> io::Result<(BufVec, CarryO
         let crlf = memchr::memmem::find(&buffer[..c], b"\r\n\r\n");
         match crlf {
             Some(i) => {
-                let _ = buf.try_extend_from_slice(&buffer[..i+2]);
-                buffer.copy_within(i+4..c, 0);
+                let _ = buf.try_extend_from_slice(&buffer[..i + 2]);
+                buffer.copy_within(i + 4..c, 0);
                 carry = c - i - 4;
                 break;
             }
@@ -239,4 +223,3 @@ impl Read for ErrorReader {
         Err(io::Error::new(self.0.kind(), self.0.to_string()))
     }
 }
-
