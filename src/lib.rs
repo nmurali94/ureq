@@ -1,3 +1,4 @@
+#![feature(portable_simd)]
 #![forbid(unsafe_code)]
 #![warn(clippy::all)]
 // new is just more readable than ..Default::default().

@@ -6,7 +6,6 @@ use chunked_transfer::Decoder as ChunkDecoder;
 use crate::error::{Error, ErrorKind::BadStatus};
 use crate::header::Headers;
 use crate::stream::Stream;
-use crate::unit::Status;
 use crate::ErrorKind;
 
 use std::convert::TryFrom;
@@ -27,6 +26,41 @@ use std::convert::TryFrom;
 type StatusVec = arrayvec::ArrayVec<u8, 32>;
 type BufVec = arrayvec::ArrayVec<u8, 2048>;
 type CarryOver = arrayvec::ArrayVec<u8, 2048>;
+
+#[derive(Clone, Copy)]
+pub enum Status {
+    Success = 200,
+    BadRequest = 400,
+    NotFound = 404,
+    InternalServerError = 500,
+    Unsupported,
+}
+
+impl From<u16> for Status {
+    fn from(n: u16) -> Self {
+        use Status::*;
+        match n {
+            200 => Success,
+            400 => BadRequest,
+            404 => NotFound,
+            500 => InternalServerError,
+            _ => Unsupported,
+        }
+    }
+}
+
+impl Status {
+    pub fn to_str(self) -> &'static str {
+        use Status::*;
+        match self {
+            Success => "Ok",
+            BadRequest => "Bad Request",
+            NotFound => "Not Found",
+            InternalServerError => "Internal Server Error",
+            Unsupported => "Unknown",
+        }
+    }
+}
 
 pub struct Response {
     status_line: StatusVec,

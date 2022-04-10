@@ -2,9 +2,8 @@ use crate::error::{Error, ErrorKind};
 use std::convert::TryFrom;
 
 type HeaderVec = arrayvec::ArrayVec<Header, 8>;
-type HeaderName = arrayvec::ArrayVec<u8, 32>;
 
-pub struct Header {
+struct Header {
     meta: usize, // 0x00, 0x00, 0xcolon, 0xlen
     data: [u8; 128],
 }
@@ -38,11 +37,6 @@ impl<const N: usize> TryFrom<arrayvec::ArrayVec<u8, N>> for Headers {
 
 impl Headers {
     pub fn header(&self, name: &str) -> Option<&[u8]> {
-        let key = name
-            .trim()
-            .bytes()
-            .map(|c| c.to_ascii_lowercase())
-            .collect::<HeaderName>();
         for header in &self.0 {
             let meta = &header.meta;
             let len = meta & 0xFFFF;
@@ -50,10 +44,43 @@ impl Headers {
 
             let data_key = &header.data[..colon];
             let v = &header.data[colon + 1..len];
-            if key.len() == data_key.len() && &key == data_key {
+            if eq(name.trim().as_bytes(), data_key) {
                 return Some(v);
             }
         }
         None
     }
+}
+
+const LOWER: [u8; 256] = lower_table();
+
+const fn lower_table() -> [u8; 256] {
+    let mut i = 0usize;
+    let mut arr = [0; 256];
+    while i < b'A' as usize {
+        arr[i] = i as u8;
+        i += 1;
+    }
+    while i <= b'Z' as usize {
+        arr[i] = (i | 32) as u8;
+        i += 1;
+    }
+    while i < 255 {
+        arr[i] = i as u8;
+        i += 1;
+    }
+    arr
+}
+
+fn eq(given: &[u8], stored: &[u8]) -> bool {
+    if given.len() != stored.len() {
+        return false;
+    }
+    for i in 0..given.len() {
+        let g = LOWER[given[i] as usize];
+        if g != stored[i] {
+            return false;
+        };
+    }
+    true
 }

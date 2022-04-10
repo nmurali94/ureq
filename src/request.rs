@@ -1,7 +1,11 @@
 use crate::url::Url;
 
-use crate::stream::Stream;
-use crate::unit::{connect_v2, send_request, Unit};
+use crate::response::Status;
+#[cfg(feature = "tls")]
+use crate::stream::connect_https;
+use crate::stream::{connect_http, Stream};
+use crate::unit::{connect_v2, send_request};
+use crate::url::Scheme;
 use crate::Response;
 use crate::{agent::Agent, error::Error, error::ErrorKind};
 
@@ -34,7 +38,22 @@ impl Request {
     ///
 
     pub fn call(self) -> Result<Response> {
-        let unit = Unit::new(self.agent, self.url);
-        unit.connect()
+        let mut stream = match self.url.scheme() {
+            Scheme::Http => connect_http(&self.url),
+            #[cfg(feature = "tls")]
+            Scheme::Https => connect_https(&self.url, &self.agent),
+        }?;
+
+        send_request(&self.url, &self.agent, &mut stream)?;
+
+        // start reading the response to process headers
+        let resp = Response::do_from_stream(stream)?;
+
+        let (_version, status) = resp.get_status_line()?;
+        // handle redirects
+        match status {
+            Status::Success => Ok(resp),
+            _ => Err(ErrorKind::TooManyRedirects.new()),
+        }
     }
 }
