@@ -2,10 +2,8 @@ use crate::url::Url;
 
 use crate::response::Status;
 #[cfg(feature = "tls")]
-use crate::stream::connect_https;
-use crate::stream::{connect_http, Stream};
+use crate::stream::{Stream};
 use crate::unit::{connect_v2, send_request};
-use crate::url::Scheme;
 use crate::Response;
 use crate::{agent::Agent, error::Error, error::ErrorKind};
 
@@ -20,7 +18,7 @@ pub struct Request {
 pub(crate) fn call_urls(agent: Agent, urls: Vec<Url>) -> Result<Vec<Stream>> {
     let mut streams = connect_v2(&agent, urls.as_slice())?;
     for (url, stream) in urls.iter().zip(streams.iter_mut()) {
-        send_request(url, &agent, stream)?;
+        send_request(url.host_str(), url.path(), &agent.user_agent, stream)?;
     }
     Ok(streams)
 }
@@ -38,13 +36,13 @@ impl Request {
     ///
 
     pub fn call(self) -> Result<Response> {
-        let mut stream = match self.url.scheme() {
-            Scheme::Http => connect_http(&self.url),
-            #[cfg(feature = "tls")]
-            Scheme::Https => connect_https(&self.url, &self.agent),
-        }?;
+        let urls = [self.url];
+        let streams = connect_v2(&self.agent, &urls)?;
+        let mut stream = streams.into_iter().next().unwrap();
 
-        send_request(&self.url, &self.agent, &mut stream)?;
+        let url = &urls[0];
+
+        send_request(url.host_str(), url.path(), &self.agent.user_agent, &mut stream)?;
 
         // start reading the response to process headers
         let resp = Response::do_from_stream(stream)?;

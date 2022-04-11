@@ -26,6 +26,5 @@ webpki = { version = "0.22", optional = true }
 webpki-roots = { version = "0.22", optional = true }
 
 io_uring = { path = "../io_uring" }
-dns-parser = "*"
 memchr = "*"
 arrayvec = "*"
