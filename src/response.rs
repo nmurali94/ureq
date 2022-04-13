@@ -8,7 +8,7 @@ use crate::header::Headers;
 use crate::stream::Stream;
 use crate::ErrorKind;
 
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 
 /// Response instances are created as results of firing off requests.
 ///
@@ -157,7 +157,7 @@ impl Response {
         //println!("Headers: {}", std::str::from_utf8(&headers).unwrap());
         let headers = Headers::try_from(headers)?;
 
-        let reader = ComboReader::new(carryover, stream);
+        let reader = ComboReader{ co: carryover, st: stream };
 
         Ok(Response {
             status_line,
@@ -170,12 +170,6 @@ impl Response {
 struct ComboReader {
     co: CarryOver,
     st: Stream,
-}
-
-impl ComboReader {
-    fn new(a: CarryOver, b: Stream) -> Self {
-        ComboReader { co: a, st: b }
-    }
 }
 
 impl Read for ComboReader {
@@ -211,23 +205,16 @@ fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, Status), Error> {
 fn read_status_and_headers(reader: &mut impl Read) -> io::Result<(BufVec, CarryOver)> {
     let mut buf = BufVec::new_const();
     let mut buffer = [0u8; 2048];
-
     let mut carry = 0;
 
     loop {
-        let r = reader.read(&mut buffer[carry..]);
-
-        let mut c = match r {
-            Ok(n) => n,
-            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
-            Err(e) => return Err(e),
-        };
-        if c == 0 {
+        let r = reader.read(&mut buffer[carry..])?;
+        if r == 0 { 
             break;
         }
-        c += carry;
-        let crlf = memchr::memmem::find(&buffer[..c], b"\r\n\r\n");
-        match crlf {
+        let c = r + carry;
+
+        match memchr::memmem::find(&buffer[..c], b"\r\n\r\n") {
             Some(i) => {
                 let _ = buf.try_extend_from_slice(&buffer[..i + 2]);
                 buffer.copy_within(i + 4..c, 0);
@@ -242,9 +229,27 @@ fn read_status_and_headers(reader: &mut impl Read) -> io::Result<(BufVec, CarryO
         }
     }
 
-    let mut carryover = CarryOver::new_const();
-    let _ = carryover.try_extend_from_slice(&buffer[..carry]).unwrap();
+    let carryover: CarryOver = buffer[..carry].try_into().unwrap();
     Ok((buf, carryover))
+}
+
+struct ReadIterator<R, const N: usize> { 
+    r: R,
+}
+
+impl <R, const N: usize> Iterator for ReadIterator<R, N>
+where R: Read
+{
+    type Item = std::io::Result<([u8; N], usize)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut buf = [0u8; N];
+        match self.r.read(&mut buf) {
+            Ok(0) => None,
+            Ok(i) => Some(Ok((buf, i))),
+            Err(e) => Some(Err(e)),
+        }
+    }
 }
 
 // ErrorReader returns an error for every read.

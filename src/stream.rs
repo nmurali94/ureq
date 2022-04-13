@@ -7,6 +7,7 @@ use crate::error::Error;
 #[cfg(feature = "tls")]
 use crate::Agent;
 
+#[cfg(feature = "tls")]
 use crate::error::ErrorKind;
 
 pub enum Stream {
@@ -78,29 +79,6 @@ pub(crate) fn connect_http(url: HostAddr) -> Result<(String, TcpStream), Error> 
     }
 }
 
-/*
-pub(crate) fn connect_http_v2<'a>(
-    urls: impl Iterator<Item = HostAddr<'a>>,
-) -> Result<(Vec<String>, Vec<TcpStream>), Error> {
-
-    let (names, ports): (Vec<_>, Vec<_>) =
-        urls.map(|u| (u.host, u.port)).unzip();
-
-    let msgs = dns(names.into_iter())?;
-
-    let (names, socks): (Vec<_>, Vec<_>) = msgs.into_iter().zip(ports).map(|(msg, port)| {
-        let (name, ips) = msg;
-        let ipaddr = ips[0];
-        (name, SocketAddr::new(ipaddr, port))
-    }).unzip();
-
-    match connect(socks) {
-        Ok(v) => Ok((names, v)),
-        Err(e) => Err(Error::from(e)),
-    }
-}
-*/
-
 #[cfg(feature = "tls")]
 use std::{convert::TryFrom, sync::Arc};
 
@@ -126,7 +104,6 @@ pub(crate) fn connect_https_v2(
 }
 
 pub fn dns(name: &str) -> io::Result<(String, Vec<IpAddr>)> {
-
     let socket = UdpSocket::bind("127.0.0.1:0")?;
     let addr = std::net::SocketAddr::from(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 53), 53));
 
