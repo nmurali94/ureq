@@ -97,6 +97,7 @@ mod agent;
 mod body;
 mod error;
 mod header;
+mod readers;
 mod request;
 mod response;
 mod stream;

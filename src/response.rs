@@ -7,6 +7,7 @@ use crate::error::{Error, ErrorKind::BadStatus};
 use crate::header::Headers;
 use crate::stream::Stream;
 use crate::ErrorKind;
+use crate::readers::*;
 
 use std::convert::{TryFrom, TryInto};
 
@@ -167,23 +168,6 @@ impl Response {
     }
 }
 
-struct ComboReader {
-    co: CarryOver,
-    st: Stream,
-}
-
-impl Read for ComboReader {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let c = self.co.as_slice().read(buf)?;
-        if c == 0 {
-            self.st.read(buf)
-        } else {
-            let _ = self.co.drain(..c);
-            Ok(c)
-        }
-    }
-}
-
 // HTTP/1.1 200 OK\r\n
 fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, Status), Error> {
     if s.len() < 12 {
@@ -202,63 +186,25 @@ fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, Status), Error> {
     }
 }
 
-fn read_status_and_headers(reader: &mut impl Read) -> io::Result<(BufVec, CarryOver)> {
-    let mut buf = BufVec::new_const();
-    let mut buffer = [0u8; 2048];
-    let mut carry = 0;
+fn read_status_and_headers(reader: &mut Stream) -> io::Result<(BufVec, CarryOver)> {
+    let mut ri = ReadIterator::<Stream, 2048>{ r: reader};
 
-    loop {
-        let r = reader.read(&mut buffer[carry..])?;
-        if r == 0 { 
-            break;
-        }
-        let c = r + carry;
-
+    if let Some(res) = ri.next()  {
+        let (mut buffer, c) = res?;
         match memchr::memmem::find(&buffer[..c], b"\r\n\r\n") {
             Some(i) => {
-                let _ = buf.try_extend_from_slice(&buffer[..i + 2]);
+                let buf: BufVec = buffer[..i + 2].try_into().unwrap();
                 buffer.copy_within(i + 4..c, 0);
-                carry = c - i - 4;
-                break;
+                let carry = c - i - 4;
+                let carryover: CarryOver = buffer[..carry].try_into().unwrap();
+                return Ok((buf, carryover));
             }
             None => {
-                let _ = buf.try_extend_from_slice(&buffer[..c - 3]);
-                buffer.copy_within(c - 3..c, 0);
-                carry = 3;
+                return Err(io::Error::new(io::ErrorKind::Other, "Failed to fetch HTTP headers in given buffer"));
             }
         }
     }
-
-    let carryover: CarryOver = buffer[..carry].try_into().unwrap();
-    Ok((buf, carryover))
+    Ok((BufVec::new(), CarryOver::new()))
 }
 
-struct ReadIterator<R, const N: usize> { 
-    r: R,
-}
 
-impl <R, const N: usize> Iterator for ReadIterator<R, N>
-where R: Read
-{
-    type Item = std::io::Result<([u8; N], usize)>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut buf = [0u8; N];
-        match self.r.read(&mut buf) {
-            Ok(0) => None,
-            Ok(i) => Some(Ok((buf, i))),
-            Err(e) => Some(Err(e)),
-        }
-    }
-}
-
-// ErrorReader returns an error for every read.
-// The error is as close to a clone of the underlying
-// io::Error as we can get.
-struct ErrorReader(io::Error);
-
-impl Read for ErrorReader {
-    fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
-        Err(io::Error::new(self.0.kind(), self.0.to_string()))
-    }
-}
