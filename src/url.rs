@@ -34,7 +34,7 @@ impl Scheme {
 
 impl Url {
     pub fn parse(s: &str) -> Result<Self, Error> {
-        if s.len() > 256 {
+        if s.is_empty() || s.len() > 256 {
             return Err(Error::UnsupportedLength);
         }
         if !s.is_ascii() {
