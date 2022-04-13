@@ -34,26 +34,19 @@ pub(crate) fn send_request(host: &str, path: &str, user_agent: &str, stream: &mu
 }
 
 #[cfg(not(feature = "tls"))]
-pub(crate) fn connect_v2(
-    _agent: &Agent,
-    urls: impl Iterator<Item = Url>,
-) -> Result<Iterator<Item = Stream>, Error> {
-    stream::connect_http_v2(urls)
-        .map(|s| s.into_iter().map(Stream::Http).into())
+pub(crate) fn connect(_agent: &Agent, url: &Url) -> Result<Stream, Error> {
+    let h = HostAddr {host: url.host_str(), port: url.port()};
+    let (_, s) = stream::connect_http(h)?;
+    Ok(Stream::Http(s))
 }
 
 #[cfg(feature = "tls")]
-pub(crate) fn connect_v2(agent: &Agent, urls: &[Url]) -> Result<Vec<Stream>, Error> {
-    let (hostaddrs, schemes): (Vec<_>, Vec<_>) = urls.iter().map(|u| (HostAddr { host: u.host_str(), port: u.port() }, u.scheme())).unzip();
-        println!("HERE {:?}", hostaddrs);
-    let (names, streams) = stream::connect_http_v2(hostaddrs.into_iter())?;
-    let mut ss = Vec::with_capacity(streams.len());
-    for (i, (stream, scheme)) in streams.into_iter().zip(schemes.iter()).enumerate() {
-        let s = match scheme {
-            Scheme::Http => Stream::Http(stream),
-            Scheme::Https => stream::connect_https_v2(stream, &names[i], agent)?,
-        };
-        ss.push(s);
-    }
-    Ok(ss)
+pub(crate) fn connect(agent: &Agent, url: &Url) -> Result<Stream, Error> {
+    let h = HostAddr {host: url.host_str(), port: url.port()};
+    let (name, stream) = stream::connect_http(h)?;
+    let s = match url.scheme() {
+        Scheme::Http => Stream::Http(stream),
+        Scheme::Https => stream::connect_https_v2(stream, &name, agent)?,
+    };
+    Ok(s)
 }

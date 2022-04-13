@@ -1,8 +1,7 @@
 use std::io::{self, Read, Write};
-use std::net::TcpStream;
-use std::net::{SocketAddr};
-
-use io_uring::{connect, dns};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream, UdpSocket};
+use dns_parser::RData::A;
+use dns_parser::{Builder, Packet, QueryClass, QueryType};
 
 use crate::error::Error;
 #[cfg(feature = "tls")]
@@ -64,6 +63,22 @@ pub(crate) struct HostAddr<'a> {
     pub port: u16,
 }
 
+pub(crate) fn connect_http(url: HostAddr) -> Result<(String, TcpStream), Error> {
+    let host = url.host;
+    let port = url.port;
+
+    let (name, ips) = dns(host)?;
+
+    let ipaddr = ips[0];
+    let socket = SocketAddr::new(ipaddr, port);
+
+    match connect_inner(socket) {
+        Ok(v) => Ok((name, v)),
+        Err(e) => Err(Error::from(e)),
+    }
+}
+
+/*
 pub(crate) fn connect_http_v2<'a>(
     urls: impl Iterator<Item = HostAddr<'a>>,
 ) -> Result<(Vec<String>, Vec<TcpStream>), Error> {
@@ -84,6 +99,7 @@ pub(crate) fn connect_http_v2<'a>(
         Err(e) => Err(Error::from(e)),
     }
 }
+*/
 
 #[cfg(feature = "tls")]
 use std::{convert::TryFrom, sync::Arc};
@@ -109,3 +125,41 @@ pub(crate) fn connect_https_v2(
     Ok(Stream::Https(stream))
 }
 
+pub fn dns(name: &str) -> io::Result<(String, Vec<IpAddr>)> {
+
+    let socket = UdpSocket::bind("127.0.0.1:0")?;
+    let addr = std::net::SocketAddr::from(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 53), 53));
+
+    let mut dmsg = Builder::new_query(13 as _, true);
+    dmsg.add_question(name, false, QueryType::A, QueryClass::IN);
+    let dmsg = dmsg.build().expect("Bad DNS Query");
+
+    let c = socket.send_to(&dmsg, &addr)?;
+    assert!(c == dmsg.len(), "Incomplete dns message");
+    let mut buf = [0; 512];
+    let (amt, _) = socket.recv_from(&mut buf[..])?;
+    let buf = &buf[..amt];
+    let packet = Packet::parse(buf).expect("Failed to parse dns packet");
+    let q = packet
+        .questions
+        .first()
+        .expect("Question should never be empty");
+    let socks = packet
+        .answers
+        .iter()
+        .filter_map(|ans| match ans.data {
+            A(ipv4) => {
+                let addr = ipv4.0;
+                Some(std::net::IpAddr::V4(addr))
+            }
+            _ => None,
+        })
+        .collect();
+    Ok((q.qname.to_string(), socks))
+}
+
+fn connect_inner(socket: SocketAddr) -> io::Result<TcpStream> {
+    let tcp = TcpStream::connect(socket)?;
+    tcp.set_nodelay(true)?;
+    Ok(tcp)
+}

@@ -25,6 +25,6 @@ rustls = { version = "0.20", optional = true }
 webpki = { version = "0.22", optional = true }
 webpki-roots = { version = "0.22", optional = true }
 
-io_uring = { path = "../io_uring" }
 memchr = "*"
 arrayvec = "*"
+dns-parser = "*"

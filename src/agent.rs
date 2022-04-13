@@ -3,9 +3,8 @@ use once_cell::sync::Lazy;
 use std::sync::Arc;
 
 use crate::error::Error;
-use crate::request::{call_urls, Request};
+use crate::request::Request;
 use crate::response::Response;
-use crate::stream::Stream;
 use crate::url::Url;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -22,23 +21,11 @@ pub struct Agent {
 
 impl Agent {
     /// Make a GET request from this agent.
-    pub fn get(&self, path: &str) -> Result<Request> {
+    pub fn get(u: Url) -> Result<Response> {
         let agent = Agent::build();
-        Request::new(agent, path)
+        Request::call(agent, u)
     }
-    /// Make a GET request from this agent.
-    pub fn get_multiple(&self, urls: Vec<Url>) -> Result<Vec<Stream>> {
-        let agent = Agent::build();
-        call_urls(agent, urls)
-    }
-    /// Make a GET request from this agent.
-    pub fn get_response(&self, stream: Stream) -> Result<Response> {
-        Response::do_from_stream(stream)
-    }
-}
-
-impl Agent {
-    pub fn build() -> Agent {
+    fn build() -> Agent {
         Agent {
             user_agent: Arc::from("ureq/2.3.1"),
             #[cfg(feature = "tls")]

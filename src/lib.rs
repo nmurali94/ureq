@@ -122,22 +122,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 // when collecting doctests, not when building the crate.
 #[doc(hidden)]
 
-/// Agents are used to hold configuration and keep state between requests.
-fn agent() -> Agent {
-    Agent::build()
-}
-
 /// Make a GET request.
-pub fn get(path: &str) -> Result<Request> {
-    agent().get(path)
+pub fn get(path: Url) -> Result<Response> {
+    Agent::get(path)
 }
 
-/// Send a GET request.
-pub fn send_multiple(path: Vec<Url>) -> Result<Vec<Stream>> {
-    agent().get_multiple(path)
-}
-
-/// Make a GET request.
-pub fn get_response(stream: Stream) -> Result<Response> {
-    agent().get_response(stream)
-}
