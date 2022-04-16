@@ -79,6 +79,28 @@ impl fmt::Debug for Response {
     }
 }
 
+enum RR {
+    C(ChunkDecoder<ComboReader>),
+    L(std::io::Take<ComboReader>),
+    R(ComboReader),
+}
+
+// Cannot RR directly because it would leak ComboReader to the consumer
+pub struct ResponseReader(RR);
+
+
+impl Read for ResponseReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        use RR::*;
+        match &mut self.0 {
+            C(c) => c.read(buf),
+            L(c) => c.read(buf),
+            R(c) => c.read(buf),
+        }
+    }
+
+}
+
 impl Response {
     pub fn get_status_line(&self) -> Result<(&str, Status), Error> {
         parse_status_line_from_header(&self.status_line)
@@ -114,7 +136,7 @@ impl Response {
     ///
     /// Example:
     ///
-    pub fn into_reader(self) -> Box<dyn Read + Send + Sync> {
+    pub fn into_reader(self) -> ResponseReader {
         //
         let (http_version, _) = self.get_status_line().unwrap();
         let is_http10 = http_version.eq_ignore_ascii_case("HTTP/1.0");
@@ -138,11 +160,14 @@ impl Response {
         };
         //println!("Limit = {} {:?}, {}", use_chunked, limit_bytes, self.carryover.len());
 
-        match (use_chunked, limit_bytes) {
-            (true, _) => Box::new(ChunkDecoder::new(self.reader)),
-            (false, Some(len)) => Box::new(self.reader.take(len as u64)),
-            (false, None) => Box::new(self.reader),
-        }
+        use RR::*;
+        let rr = match (use_chunked, limit_bytes) {
+            (true, _) => C(ChunkDecoder::new(self.reader)),
+            (false, Some(len)) => L(self.reader.take(len as u64)),
+            (false, None) => R(self.reader),
+        };
+
+        ResponseReader(rr)
     }
 
     pub(crate) fn do_from_stream(mut stream: Stream) -> Result<Response, Error> {
@@ -187,7 +212,7 @@ fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, Status), Error> {
 }
 
 fn read_status_and_headers(reader: &mut Stream) -> io::Result<(BufVec, CarryOver)> {
-    let mut ri = ReadIterator::<Stream, 2048>{ r: reader};
+    let mut ri = ReadIterator::<Stream, 2048>::new(reader);
 
     if let Some(res) = ri.next()  {
         let (mut buffer, c) = res?;

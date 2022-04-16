@@ -1,6 +1,8 @@
 use std::io::{self, Write};
 
-use crate::url::{Scheme, Url};
+use crate::url::Url;
+#[cfg(feature = "tls")]
+use crate::url::Scheme;
 
 use crate::error::Error;
 use crate::stream::{self, Stream, HostAddr};

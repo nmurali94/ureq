@@ -10,6 +10,9 @@ use crate::Agent;
 #[cfg(feature = "tls")]
 use crate::error::ErrorKind;
 
+
+type IpAddrs = arrayvec::ArrayVec<IpAddr, 4>;
+
 pub enum Stream {
     Http(TcpStream),
     #[cfg(feature = "tls")]
@@ -103,8 +106,9 @@ pub(crate) fn connect_https_v2(
     Ok(Stream::Https(stream))
 }
 
-pub fn dns(name: &str) -> io::Result<(String, Vec<IpAddr>)> {
-    let socket = UdpSocket::bind("127.0.0.1:0")?;
+pub fn dns(name: &str) -> io::Result<(String, IpAddrs)> {
+    let base = std::net::SocketAddr::from(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 0));
+    let socket = UdpSocket::bind(base)?;
     let addr = std::net::SocketAddr::from(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 53), 53));
 
     let mut dmsg = Builder::new_query(13 as _, true);

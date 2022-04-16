@@ -31,8 +31,16 @@ impl Read for ErrorReader {
     }
 }
 
-pub(crate) struct ReadIterator<'a, R, const N: usize> { 
-    pub r: &'a mut R,
+pub struct ReadIterator<'a, R, const N: usize> { 
+    r: &'a mut R,
+}
+
+impl <'a, R, const N: usize> ReadIterator<'a, R, N> 
+where R: Read 
+{
+    pub fn new(r: &'a mut R) -> Self {
+        ReadIterator { r }
+    }
 }
 
 impl <'a, R, const N: usize> Iterator for ReadIterator<'a, R, N>
