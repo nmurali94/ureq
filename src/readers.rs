@@ -19,7 +19,7 @@ impl Read for ComboReader {
         }
     }
 }
-//
+
 // ErrorReader returns an error for every read.
 // The error is as close to a clone of the underlying
 // io::Error as we can get.
@@ -30,6 +30,10 @@ impl Read for ErrorReader {
         Err(io::Error::new(self.0.kind(), self.0.to_string()))
     }
 }
+
+/**
+ * Iterators to emulate control loops for Read
+ */
 
 pub struct ReadIterator<'a, R> { 
     r: &'a mut R,
@@ -110,14 +114,19 @@ where R: Read, F: FnMut(&mut [u8]) -> usize
     fn next(&mut self) -> Option<Self::Item> {
         let v = self.r.read(&mut self.d[self.l..]);
         match v {
-            Ok(0) => None,
+            Ok(0) => {
+                if self.l > 0 {
+                    let c = (self.f) (&mut self.d[..self.l]);
+                    self.l = 0;
+                    Some(Ok(c))
+               } else { None }
+            },
             Ok(n) => {
                 let t = self.l + n;
                 let consume = (self.f) (&mut self.d[..t]);
-                let diff = t - consume;
-                self.d[..diff].copy_within(consume..t, 0);
-                self.l = diff;
-                Some(Ok(self.l))
+                self.d.copy_within(consume..t, 0);
+                self.l = t - consume;
+                Some(Ok(consume))
             },
             Err(e) => Some(Err(e)),
         }

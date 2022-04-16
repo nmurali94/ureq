@@ -1,4 +1,3 @@
-#![feature(portable_simd)]
 #![forbid(unsafe_code)]
 #![warn(clippy::all)]
 // new is just more readable than ..Default::default().
@@ -108,7 +107,7 @@ mod url;
 pub use crate::error::{Error};
 pub use crate::response::{Response, ResponseReader};
 pub use crate::url::Url;
-pub use crate::readers::{ReadIterator, ReadToEndIterator};
+pub use crate::readers::{ConsumingReadIterator, ReadIterator, ReadToEndIterator};
 
 pub type Result<T> = std::result::Result<T, Error>;
 

@@ -52,35 +52,16 @@ impl Headers {
     }
 }
 
-const LOWER: [u8; 256] = lower_table();
-
-const fn lower_table() -> [u8; 256] {
-    let mut i = 0usize;
-    let mut arr = [0; 256];
-    while i < b'A' as usize {
-        arr[i] = i as u8;
-        i += 1;
-    }
-    while i <= b'Z' as usize {
-        arr[i] = (i | 32) as u8;
-        i += 1;
-    }
-    while i < 255 {
-        arr[i] = i as u8;
-        i += 1;
-    }
-    arr
-}
-
 fn eq(given: &[u8], stored: &[u8]) -> bool {
     if given.len() != stored.len() {
         return false;
     }
     for i in 0..given.len() {
-        let g = LOWER[given[i] as usize];
+        let g = given[i].to_ascii_lowercase();
         if g != stored[i] {
             return false;
         };
     }
     true
 }
+
