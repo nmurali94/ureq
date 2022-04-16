@@ -8,10 +8,9 @@ use crate::{agent::Agent, error::Error, error::ErrorKind};
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Request instances are builders that creates a request.
-pub struct Request { }
+pub struct Request {}
 
 impl Request {
-
     /// Sends the request with no body and blocks the caller until done.
     ///
     /// Use this with GET, HEAD, OPTIONS or TRACE. It sends neither

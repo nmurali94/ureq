@@ -1,15 +1,20 @@
-use std::io::{Write, Result as IoResult};
+use std::io::{Result as IoResult, Write};
 
-use crate::url::Url;
 #[cfg(feature = "tls")]
 use crate::url::Scheme;
+use crate::url::Url;
 
-use crate::error::Error;
-use crate::stream::{Stream, HostAddr, connect_http, connect_https_v2};
 use crate::agent::Agent;
+use crate::error::Error;
+use crate::stream::{connect_http, connect_https_v2, HostAddr, Stream};
 
 /// Send request line + headers (all up until the body).
-pub(crate) fn send_request(host: &str, path: &str, user_agent: &str, stream: &mut Stream) -> IoResult<()> {
+pub(crate) fn send_request(
+    host: &str,
+    path: &str,
+    user_agent: &str,
+    stream: &mut Stream,
+) -> IoResult<()> {
     // request line
     let mut v = arrayvec::ArrayVec::<u8, 512>::new_const();
 
@@ -37,14 +42,20 @@ pub(crate) fn send_request(host: &str, path: &str, user_agent: &str, stream: &mu
 
 #[cfg(not(feature = "tls"))]
 pub(crate) fn connect(_agent: &Agent, url: &Url) -> Result<Stream, Error> {
-    let h = HostAddr {host: url.host_str(), port: url.port()};
+    let h = HostAddr {
+        host: url.host_str(),
+        port: url.port(),
+    };
     let (_, s) = connect_http(h)?;
     Ok(Stream::Http(s))
 }
 
 #[cfg(feature = "tls")]
 pub(crate) fn connect(agent: &Agent, url: &Url) -> Result<Stream, Error> {
-    let h = HostAddr {host: url.host_str(), port: url.port()};
+    let h = HostAddr {
+        host: url.host_str(),
+        port: url.port(),
+    };
     let (name, stream) = connect_http(h)?;
     let s = match url.scheme() {
         Scheme::Http => Stream::Http(stream),

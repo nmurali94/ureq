@@ -1,15 +1,14 @@
-use std::io::{self, Read, Write};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream, UdpSocket};
 use dns_parser::RData::A;
 use dns_parser::{Builder, Packet, QueryClass, QueryType};
+use std::io::{self, Read, Write};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream, UdpSocket};
 
-use crate::error::Error;
 #[cfg(feature = "tls")]
 use crate::agent::Agent;
+use crate::error::Error;
 
 #[cfg(feature = "tls")]
 use crate::error::ErrorKind;
-
 
 type IpAddrs = arrayvec::ArrayVec<IpAddr, 4>;
 

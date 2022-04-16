@@ -5,8 +5,8 @@ use chunked_transfer::Decoder as ChunkDecoder;
 
 use crate::error::{Error, ErrorKind, ErrorKind::BadStatus};
 use crate::header::Headers;
-use crate::stream::Stream;
 use crate::readers::*;
+use crate::stream::Stream;
 
 use std::convert::{TryFrom, TryInto};
 
@@ -87,7 +87,6 @@ enum RR {
 // Cannot RR directly because it would leak ComboReader to the consumer
 pub struct ResponseReader(RR);
 
-
 impl Read for ResponseReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         use RR::*;
@@ -97,7 +96,6 @@ impl Read for ResponseReader {
             R(c) => c.read(buf),
         }
     }
-
 }
 
 impl Response {
@@ -182,7 +180,10 @@ impl Response {
         //println!("Headers: {}", std::str::from_utf8(&headers).unwrap());
         let headers = Headers::try_from(headers)?;
 
-        let reader = ComboReader{ co: carryover, st: stream };
+        let reader = ComboReader {
+            co: carryover,
+            st: stream,
+        };
 
         Ok(Response {
             status_line,
@@ -214,7 +215,7 @@ fn read_status_and_headers(reader: &mut Stream) -> io::Result<(BufVec, CarryOver
     let mut buffer = [0; 2048];
     let mut ri = ReadIterator::<Stream>::new(reader, &mut buffer);
 
-    if let Some(res) = ri.next()  {
+    if let Some(res) = ri.next() {
         let c = res?;
         match memchr::memmem::find(&buffer[..c], b"\r\n\r\n") {
             Some(i) => {
@@ -225,11 +226,12 @@ fn read_status_and_headers(reader: &mut Stream) -> io::Result<(BufVec, CarryOver
                 return Ok((buf, carryover));
             }
             None => {
-                return Err(io::Error::new(io::ErrorKind::Other, "Failed to fetch HTTP headers in given buffer"));
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "Failed to fetch HTTP headers in given buffer",
+                ));
             }
         }
     }
     Ok((BufVec::new(), CarryOver::new()))
 }
-
-

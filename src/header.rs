@@ -64,4 +64,3 @@ fn eq(given: &[u8], stored: &[u8]) -> bool {
     }
     true
 }
-
