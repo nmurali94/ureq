@@ -6,7 +6,7 @@ use crate::url::Scheme;
 
 use crate::error::Error;
 use crate::stream::{self, Stream, HostAddr};
-use crate::Agent;
+use crate::agent::Agent;
 
 /// Send request line + headers (all up until the body).
 pub(crate) fn send_request(host: &str, path: &str, user_agent: &str, stream: &mut Stream) -> io::Result<()> {

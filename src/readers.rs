@@ -31,28 +31,94 @@ impl Read for ErrorReader {
     }
 }
 
-pub struct ReadIterator<'a, R, const N: usize> { 
+pub struct ReadIterator<'a, R> { 
     r: &'a mut R,
+    d: &'a mut [u8],
 }
 
-impl <'a, R, const N: usize> ReadIterator<'a, R, N> 
+impl <'a, R> ReadIterator<'a, R> 
 where R: Read 
 {
-    pub fn new(r: &'a mut R) -> Self {
-        ReadIterator { r }
+    pub fn new(r: &'a mut R, d: &'a mut [u8]) -> Self {
+        ReadIterator { r, d }
     }
 }
 
-impl <'a, R, const N: usize> Iterator for ReadIterator<'a, R, N>
+impl <'a, R> Iterator for ReadIterator<'a, R>
 where R: Read
 {
-    type Item = std::io::Result<([u8; N], usize)>;
+    type Item = std::io::Result<usize>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut buf = [0u8; N];
-        match self.r.read(&mut buf) {
+        let v = self.r.read(self.d);
+        match v {
             Ok(0) => None,
-            Ok(i) => Some(Ok((buf, i))),
+            _ => Some(v),
+        }
+    }
+}
+
+pub struct ReadToEndIterator<'a, R> { 
+    r: &'a mut R,
+    d: &'a mut [u8],
+    l: usize,
+}
+
+impl <'a, R> ReadToEndIterator<'a, R> 
+where R: Read 
+{
+    pub fn new(r: &'a mut R, d: &'a mut [u8]) -> Self {
+        ReadToEndIterator { r, d, l: 0 }
+    }
+}
+
+impl <'a, R> Iterator for ReadToEndIterator<'a, R>
+where R: Read
+{
+    type Item = std::io::Result<usize>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let v = self.r.read(&mut self.d[self.l..]);
+        match v {
+            Ok(0) => None,
+            Ok(n) => {self.l += n; Some(Ok(n)) },
+            Err(e) => Some(Err(e)),
+        }
+    }
+}
+
+pub struct ConsumingReadIterator<'a, R, F> { 
+    r: &'a mut R,
+    d: &'a mut [u8],
+    l: usize,
+    f: &'a mut F,
+}
+
+impl <'a, R, F> ConsumingReadIterator<'a, R, F> 
+where R: Read, F: FnMut(&mut [u8]) -> usize 
+{
+    pub fn new(r: &'a mut R, d: &'a mut [u8], f: &'a mut F) -> Self {
+        ConsumingReadIterator { r, d, l: 0, f}
+    }
+}
+
+impl <'a, R, F> Iterator for ConsumingReadIterator<'a, R, F>
+where R: Read, F: FnMut(&mut [u8]) -> usize
+{
+    type Item = std::io::Result<usize>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let v = self.r.read(&mut self.d[self.l..]);
+        match v {
+            Ok(0) => None,
+            Ok(n) => {
+                let t = self.l + n;
+                let consume = (self.f) (&mut self.d[..t]);
+                let diff = t - consume;
+                self.d[..diff].copy_within(consume..t, 0);
+                self.l = diff;
+                Some(Ok(self.l))
+            },
             Err(e) => Some(Err(e)),
         }
     }

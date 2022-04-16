@@ -3,10 +3,9 @@ use std::io::{self, Read};
 
 use chunked_transfer::Decoder as ChunkDecoder;
 
-use crate::error::{Error, ErrorKind::BadStatus};
+use crate::error::{Error, ErrorKind, ErrorKind::BadStatus};
 use crate::header::Headers;
 use crate::stream::Stream;
-use crate::ErrorKind;
 use crate::readers::*;
 
 use std::convert::{TryFrom, TryInto};
@@ -212,10 +211,11 @@ fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, Status), Error> {
 }
 
 fn read_status_and_headers(reader: &mut Stream) -> io::Result<(BufVec, CarryOver)> {
-    let mut ri = ReadIterator::<Stream, 2048>::new(reader);
+    let mut buffer = [0; 2048];
+    let mut ri = ReadIterator::<Stream>::new(reader, &mut buffer);
 
     if let Some(res) = ri.next()  {
-        let (mut buffer, c) = res?;
+        let c = res?;
         match memchr::memmem::find(&buffer[..c], b"\r\n\r\n") {
             Some(i) => {
                 let buf: BufVec = buffer[..i + 2].try_into().unwrap();

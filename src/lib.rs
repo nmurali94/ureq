@@ -105,12 +105,10 @@ mod unit;
 mod url;
 
 #[doc(hidden)]
-pub use crate::agent::Agent;
-pub use crate::error::{Error, ErrorKind, OrAnyStatus, Transport};
-pub use crate::request::Request;
-pub use crate::response::Response;
-pub use crate::stream::Stream;
+pub use crate::error::{Error};
+pub use crate::response::{Response, ResponseReader};
 pub use crate::url::Url;
+pub use crate::readers::{ReadIterator, ReadToEndIterator};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -125,6 +123,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Make a GET request.
 pub fn get(path: Url) -> Result<Response> {
-    Agent::get(path)
+    crate::agent::Agent::get(path)
 }
 

@@ -5,7 +5,7 @@ use dns_parser::{Builder, Packet, QueryClass, QueryType};
 
 use crate::error::Error;
 #[cfg(feature = "tls")]
-use crate::Agent;
+use crate::agent::Agent;
 
 #[cfg(feature = "tls")]
 use crate::error::ErrorKind;
