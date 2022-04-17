@@ -99,7 +99,7 @@ impl Read for ResponseReader {
 }
 
 impl Response {
-    pub fn get_status_line(&self) -> Result<(&str, Status), Error> {
+    pub fn get_status_line(&self) -> Result<(&'static str, Status), Error> {
         parse_status_line_from_header(&self.status_line)
     }
 
@@ -194,7 +194,7 @@ impl Response {
 }
 
 // HTTP/1.1 200 OK\r\n
-fn parse_status_line_from_header(s: &[u8]) -> Result<(&str, Status), Error> {
+fn parse_status_line_from_header(s: &[u8]) -> Result<(&'static str, Status), Error> {
     if s.len() < 12 {
         Err(BadStatus.msg("Status line isn't formatted correctly"))
     } else if b"HTTP/1.1 " != &s[..9] {

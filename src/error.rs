@@ -14,6 +14,8 @@ pub enum Error {
     Status(u16, Box<Response>),
     /// There was an error making the request or receiving the response.
     Transport(Transport),
+    /// Url Error
+    ParseError(ParseError),
 }
 
 // Any error that is not a status code error. For instance, DNS name not found,
@@ -26,36 +28,18 @@ pub struct Transport {
     source: Option<Box<dyn error::Error + Send + Sync + 'static>>,
 }
 
-/// Extension to [`Result<Response, Error>`] for handling all status codes as [`Response`].
-pub trait OrAnyStatus {
-    /// Ergonomic helper for handling all status codes as [`Response`].
-    ///
-    /// By default, ureq returns non-2xx responses as [`Error::Status`]. This
-    /// helper is for handling all responses as [`Response`], regardless
-    /// of status code.
-    ///
-    fn or_any_status(self) -> Result<Response, Transport>;
-}
-
-impl OrAnyStatus for Result<Response, Error> {
-    fn or_any_status(self) -> Result<Response, Transport> {
-        match self {
-            Ok(response) => Ok(response),
-            Err(Error::Status(_, response)) => Ok(*response),
-            Err(Error::Transport(transport)) => Err(transport),
-        }
-    }
-}
-
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Status(status, _response) => {
                 write!(f, "status code {}", status)?;
-            }
+            },
             Error::Transport(err) => {
                 write!(f, "{}", err)?;
-            }
+            },
+            Error::ParseError(err) => {
+                write!(f, "{}", err)?;
+            },
         }
         Ok(())
     }
@@ -130,6 +114,7 @@ impl Error {
         match self {
             Error::Status(_, _) => ErrorKind::HTTP,
             Error::Transport(Transport { kind: k, .. }) => *k,
+            Error::ParseError(_) => ErrorKind::InvalidUrl,
         }
     }
 }

@@ -1,3 +1,7 @@
+use std::error::Error as StdError;
+use crate::error::Error as UreqError;
+use std::fmt;
+
 #[derive(Debug)]
 pub struct Url {
     serialization: String,
@@ -33,25 +37,25 @@ impl Scheme {
 }
 
 impl Url {
-    pub fn parse(s: &str) -> Result<Self, Error> {
+    pub fn parse(s: &str) -> Result<Self, UreqError> {
         if s.is_empty() || s.len() > 256 {
-            return Err(Error::UnsupportedLength);
+            return Err(UreqError::from(Error::UnsupportedLength));
         }
         if !s.is_ascii() {
-            return Err(Error::Ascii);
+            return Err(UreqError::from(Error::Ascii));
         }
 
         let bs = s.as_bytes();
-        let si = memchr::memmem::find(bs, b"://").ok_or(Error::Scheme)?;
+        let si = memchr::memmem::find(bs, b"://").ok_or_else(|| UreqError::from(Error::Scheme))?;
         let scheme = match &bs[..si] {
             b"http" => Ok(Scheme::Http),
             #[cfg(feature = "tls")]
             b"https" => Ok(Scheme::Https),
-            _ => Err(Error::Scheme),
+            _ => Err(UreqError::from(Error::Scheme)),
         }?;
         let hi = si + 3;
 
-        let hj = memchr::memchr(b'/', &bs[hi..]).ok_or(Error::Host)?;
+        let hj = memchr::memchr(b'/', &bs[hi..]).ok_or_else(|| UreqError::from(Error::Host))?;
         let hj = hi + hj;
         let pk = memchr::memchr(b':', &bs[hi..hj]);
         let v = match scheme {
@@ -83,8 +87,7 @@ impl Url {
         Ok(url)
     }
     pub fn serialization(&self) -> &str {
-        self.serialization.as_str()
-    }
+        self.serialization.as_str() }
 
     pub fn host_str(&self) -> &str {
         let m = (self.meta >> 32) & 0x0000FFFF;
@@ -108,3 +111,13 @@ impl Url {
         (((self.meta) << 32) >> 48) as u16
     }
 }
+
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl StdError for Error {}
+
