@@ -11,16 +11,7 @@ use crate::stream::Stream;
 use std::convert::{TryFrom, TryInto};
 
 /// Response instances are created as results of firing off requests.
-///
-/// The `Response` is used to read response headers and decide what to do with the body.
-/// Note that the socket connection is open and the body not read until one of
-/// [`into_reader()`](#method.into_reader), [`into_json()`](#method.into_json), or
-///
-/// When dropping a `Response` instance, one one of two things can happen. If
-/// the response has unread bytes, the underlying socket cannot be reused,
-/// and the connection is closed. If there are no unread bytes, the connection
-/// is returned to the [`Agent`](crate::Agent) connection pool used (notice there is always
-/// an agent present, even when not explicitly configured by the user).
+/// The `Response` is used to read response headers and decide what to do with the body.  Note that the socket connection is open and the body not read until [`into_reader()`](#method.into_reader)
 ///
 
 type StatusVec = arrayvec::ArrayVec<u8, 32>;
@@ -98,19 +89,19 @@ impl Read for ResponseReader {
     }
 }
 
+impl ResponseReader {
+    pub fn read_to_end(mut self, data: &mut [u8]) -> io::Result<&mut [u8]> {
+        ReadToEndIterator::<Self>::new(&mut self, data)
+            .try_fold(0, |acc, r| r.map(|c| acc + c))
+            .map(move |st| &mut data[..st])
+    }
+}
+
 impl Response {
     pub fn get_status_line(&self) -> Result<(&'static str, Status), Error> {
         parse_status_line_from_header(&self.status_line)
     }
 
-    /// The header value for the given name, or None if not found.
-    ///
-    /// For historical reasons, the HTTP spec allows for header values
-    /// to be encoded using encodigs like iso-8859-1. Such encodings
-    /// means the values are not possible to interpret as utf-8.
-    ///
-    /// In case the header value can't be read as utf-8, this function
-    /// returns `None` (while the name is visible in [`Response::headers_names()`]).
     pub fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .header(name)
@@ -125,13 +116,6 @@ impl Response {
     /// 2. If `Content-Length` is set, the returned reader is limited to this byte
     ///    length regardless of how many bytes the server sends.
     /// 3. If no length header, the reader is until server stream end.
-    ///
-    /// Note: If you use `read_to_end()` on the resulting reader, a malicious
-    /// server might return enough bytes to exhaust available memory. If you're
-    /// making requests to untrusted servers, you should use `.take()` to
-    /// limit the response bytes read.
-    ///
-    /// Example:
     ///
     pub fn into_reader(self) -> ResponseReader {
         //

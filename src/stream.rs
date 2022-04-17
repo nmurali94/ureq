@@ -15,7 +15,7 @@ type IpAddrs = arrayvec::ArrayVec<IpAddr, 4>;
 pub enum Stream {
     Http(TcpStream),
     #[cfg(feature = "tls")]
-    Https(rustls::StreamOwned<rustls::ClientConnection, TcpStream>),
+    Https(Box<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>),
 }
 
 impl Read for Stream {
@@ -102,7 +102,7 @@ pub(crate) fn connect_https_v2(
         .map_err(|err| ErrorKind::ConnectionFailed.new().src(err))?;
     let stream = rustls::StreamOwned::new(sess, sock);
 
-    Ok(Stream::Https(stream))
+    Ok(Stream::Https(Box::new(stream)))
 }
 
 pub fn dns(name: &str) -> io::Result<(String, IpAddrs)> {

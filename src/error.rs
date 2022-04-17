@@ -1,5 +1,5 @@
 //use url::{ParseError, Url};
-use crate::url::{Error as ParseError, Url};
+use crate::url::{Error as ParseError};
 
 use std::error;
 use std::fmt::{self, Display};
@@ -23,8 +23,7 @@ pub enum Error {
 #[derive(Debug)]
 pub struct Transport {
     kind: ErrorKind,
-    message: Option<String>,
-    url: Option<Url>,
+    message: Option<&'static str>,
     source: Option<Box<dyn error::Error + Send + Sync + 'static>>,
 }
 
@@ -33,13 +32,13 @@ impl Display for Error {
         match self {
             Error::Status(status, _response) => {
                 write!(f, "status code {}", status)?;
-            },
+            }
             Error::Transport(err) => {
                 write!(f, "{}", err)?;
-            },
+            }
             Error::ParseError(err) => {
                 write!(f, "{}", err)?;
-            },
+            }
         }
         Ok(())
     }
@@ -47,9 +46,6 @@ impl Display for Error {
 
 impl Display for Transport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(url) = &self.url {
-            write!(f, "{:?}: ", url)?;
-        }
         write!(f, "{}", self.kind)?;
         if let Some(message) = &self.message {
             write!(f, ": {}", message)?;
@@ -81,22 +77,12 @@ impl error::Error for Transport {
 }
 
 impl Error {
-    pub(crate) fn new(kind: ErrorKind, message: Option<String>) -> Self {
+    pub(crate) fn new(kind: ErrorKind, message: Option<&'static str>) -> Self {
         Error::Transport(Transport {
             kind,
             message,
-            url: None,
             source: None,
         })
-    }
-
-    pub(crate) fn _url(self, url: Url) -> Self {
-        if let Error::Transport(mut e) = self {
-            e.url = Some(url);
-            Error::Transport(e)
-        } else {
-            self
-        }
     }
 
     pub(crate) fn src(self, e: impl error::Error + Send + Sync + 'static) -> Self {
@@ -157,8 +143,8 @@ impl ErrorKind {
         Error::new(self, None)
     }
 
-    pub(crate) fn msg(self, s: &str) -> Error {
-        Error::new(self, Some(s.to_string()))
+    pub(crate) fn msg(self, s: &'static str) -> Error {
+        Error::new(self, Some(s))
     }
 }
 
@@ -183,8 +169,7 @@ impl From<Transport> for Error {
 
 impl From<ParseError> for Error {
     fn from(err: ParseError) -> Self {
-        ErrorKind::InvalidUrl.msg(&format!("failed to parse URL: {:?}", err))
-        //.src(err)
+        ErrorKind::InvalidUrl.msg("Failed to parse URL").src(err)
     }
 }
 

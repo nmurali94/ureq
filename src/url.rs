@@ -1,5 +1,5 @@
-use std::error::Error as StdError;
 use crate::error::Error as UreqError;
+use std::error::Error as StdError;
 use std::fmt;
 
 #[derive(Debug)]
@@ -26,7 +26,7 @@ pub enum Scheme {
 }
 
 impl Scheme {
-    fn to_str(self) -> &'static str {
+    fn _to_str(self) -> &'static str {
         use Scheme::*;
         match self {
             Http => "http",
@@ -87,7 +87,8 @@ impl Url {
         Ok(url)
     }
     pub fn serialization(&self) -> &str {
-        self.serialization.as_str() }
+        self.serialization.as_str()
+    }
 
     pub fn host_str(&self) -> &str {
         let m = (self.meta >> 32) & 0x0000FFFF;
@@ -112,7 +113,6 @@ impl Url {
     }
 }
 
-
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
@@ -120,4 +120,3 @@ impl fmt::Display for Error {
 }
 
 impl StdError for Error {}
-

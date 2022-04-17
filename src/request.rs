@@ -1,9 +1,9 @@
 use crate::url::Url;
 
-use crate::response::Status;
+use crate::response::{Response, Status};
 use crate::unit::{connect, send_request};
-use crate::Response;
-use crate::{agent::Agent, error::Error, error::ErrorKind};
+use crate::agent::Agent;
+use crate::error::{Error, ErrorKind};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -11,12 +11,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct Request;
 
 impl Request {
-    /// Sends the request with no body and blocks the caller until done.
-    ///
-    /// Use this with GET, HEAD, OPTIONS or TRACE. It sends neither
-    /// Content-Length nor Transfer-Encoding.
-    ///
-
     pub fn call(agent: Agent, url: Url) -> Result<Response> {
         connect(&agent, &url)
             .and_then(|mut stream| {

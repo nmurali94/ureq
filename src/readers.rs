@@ -113,6 +113,14 @@ where
     pub fn new(r: &'a mut R, d: &'a mut [u8], f: &'a mut F) -> Self {
         ConsumingReadIterator { r, d, l: 0, f }
     }
+
+    fn consume(&mut self, n: usize) -> usize {
+        let t = self.l + n;
+        let consume = (self.f)(&mut self.d[..t]);
+        self.d.copy_within(consume..t, 0);
+        self.l = t - consume;
+        consume
+    }
 }
 
 impl<'a, R, F> Iterator for ConsumingReadIterator<'a, R, F>
@@ -125,22 +133,8 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         let v = self.r.read(&mut self.d[self.l..]);
         match v {
-            Ok(0) => {
-                if self.l > 0 {
-                    let c = (self.f)(&mut self.d[..self.l]);
-                    self.l = 0;
-                    Some(Ok(c))
-                } else {
-                    None
-                }
-            }
-            Ok(n) => {
-                let t = self.l + n;
-                let consume = (self.f)(&mut self.d[..t]);
-                self.d.copy_within(consume..t, 0);
-                self.l = t - consume;
-                Some(Ok(consume))
-            }
+            Ok(0) => None,
+            Ok(n) => Some(Ok(self.consume(n))),
             Err(e) => Some(Err(e)),
         }
     }

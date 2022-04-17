@@ -6,9 +6,9 @@ use crate::url::Url;
 
 use crate::agent::Agent;
 use crate::error::Error;
-use crate::stream::{connect_http, HostAddr, Stream};
 #[cfg(feature = "tls")]
-use crate::stream::{connect_https_v2};
+use crate::stream::connect_https_v2;
+use crate::stream::{connect_http, HostAddr, Stream};
 
 /// Send request line + headers (all up until the body).
 pub(crate) fn send_request(
