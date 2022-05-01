@@ -1,7 +1,7 @@
 use crate::stream::Stream;
 use std::io::{self, Read};
 
-type CarryOver = arrayvec::ArrayVec<u8, 2048>;
+type CarryOver = Vec<u8>;
 
 pub(crate) struct ComboReader {
     pub co: CarryOver,
@@ -134,7 +134,9 @@ where
         let v = self.r.read(&mut self.d[self.l..]);
         match v {
             Ok(0) => None,
-            Ok(n) => Some(Ok(self.consume(n))),
+            Ok(n) => {
+                Some(Ok(self.consume(n)))
+            },
             Err(e) => Some(Err(e)),
         }
     }

@@ -18,28 +18,28 @@ pub(crate) fn send_request(
     stream: &mut Stream,
 ) -> IoResult<()> {
     // request line
-    let mut v = arrayvec::ArrayVec::<u8, 512>::new_const();
+    let mut buf = [0; 512];
+    let mut v = &mut buf[..];
 
-    let _ = v.try_extend_from_slice(b"GET ");
-    let _ = v.try_extend_from_slice(path.as_bytes());
-    let _ = v.try_extend_from_slice(b" HTTP/1.1\r\n");
+    let _ = v.write(b"GET ");
+    let _ = v.write(path.as_bytes());
+    let _ = v.write(b" HTTP/1.1\r\n");
 
     // host header if not set by user.
-    let _ = v.try_extend_from_slice(b"Host: ");
-    let _ = v.try_extend_from_slice(host.as_bytes());
-    let _ = v.try_extend_from_slice(b"\r\n");
+    let _ = v.write(b"Host: ");
+    let _ = v.write(host.as_bytes());
+    let _ = v.write(b"\r\n");
 
-    let _ = v.try_extend_from_slice(b"User-Agent: ");
-    let _ = v.try_extend_from_slice(user_agent.as_bytes());
-    let _ = v.try_extend_from_slice(b"\r\n");
+    let _ = v.write(b"User-Agent: ");
+    let _ = v.write(user_agent.as_bytes());
+    let _ = v.write(b"\r\n");
 
     // finish
 
-    let _ = v.try_extend_from_slice(b"\r\n");
+    let _ = v.write(b"\r\n");
+    let rem = v.len();
 
-    stream.write_all(&v)?;
-
-    Ok(())
+    stream.write_all(&buf[..(512-rem)])
 }
 
 #[cfg(not(feature = "tls"))]

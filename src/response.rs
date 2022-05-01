@@ -14,9 +14,15 @@ use std::convert::{TryFrom, TryInto};
 /// The `Response` is used to read response headers and decide what to do with the body.  Note that the socket connection is open and the body not read until [`into_reader()`](#method.into_reader)
 ///
 
-type StatusVec = arrayvec::ArrayVec<u8, 32>;
-type BufVec = arrayvec::ArrayVec<u8, 2048>;
-type CarryOver = arrayvec::ArrayVec<u8, 2048>;
+/*
+type StatusVec = arrayvec::ArrayVec<u8, 128>;
+type BufVec = arrayvec::ArrayVec<u8, 8192>;
+type CarryOver = arrayvec::ArrayVec<u8, 8192>;
+*/
+
+type StatusVec = Vec<u8>;
+type BufVec = Vec<u8>;
+type CarryOver = Vec<u8>;
 
 #[derive(Clone, Copy)]
 pub enum Status {
@@ -139,7 +145,6 @@ impl Response {
             self.header("content-length")
                 .and_then(|l| l.parse::<usize>().ok())
         };
-        //println!("Limit = {} {:?}, {}", use_chunked, limit_bytes, self.carryover.len());
 
         use RR::*;
         let rr = match (use_chunked, limit_bytes) {
@@ -159,9 +164,7 @@ impl Response {
         let i = memchr::memchr(b'\n', &headers)
             .ok_or_else(|| ErrorKind::BadStatus.msg("Missing Status Line"))?;
         let status_line: StatusVec = headers.drain(..i + 1).collect();
-        //println!("Status: {}", std::str::from_utf8(&status_line).unwrap());
 
-        //println!("Headers: {}", std::str::from_utf8(&headers).unwrap());
         let headers = Headers::try_from(headers)?;
 
         let reader = ComboReader {
@@ -196,7 +199,7 @@ fn parse_status_line_from_header(s: &[u8]) -> Result<(&'static str, Status), Err
 }
 
 fn read_status_and_headers(reader: &mut Stream) -> io::Result<(BufVec, CarryOver)> {
-    let mut buffer = [0; 2048];
+    let mut buffer = [0; 8192 * 2];
     let mut ri = ReadIterator::<Stream>::new(reader, &mut buffer);
 
     if let Some(res) = ri.next() {

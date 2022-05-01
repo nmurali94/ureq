@@ -26,5 +26,4 @@ webpki = { version = "0.22", optional = true }
 webpki-roots = { version = "0.22", optional = true }
 
 memchr = "*"
-arrayvec = "*"
 dns-parser = "*"

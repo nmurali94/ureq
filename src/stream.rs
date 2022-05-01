@@ -10,7 +10,7 @@ use crate::error::Error;
 #[cfg(feature = "tls")]
 use crate::error::ErrorKind;
 
-type IpAddrs = arrayvec::ArrayVec<IpAddr, 4>;
+type IpAddrs = Vec<IpAddr>;
 
 pub enum Stream {
     Http(TcpStream),
