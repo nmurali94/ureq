@@ -110,7 +110,7 @@ pub fn dns(name: &str) -> io::Result<(String, IpAddrs)> {
     let socket = UdpSocket::bind(base)?;
     let addr = std::net::SocketAddr::from(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 53), 53));
 
-    let mut dmsg = Builder::new_query(13 as _, true);
+    let mut dmsg = Builder::new_query(13, true);
     dmsg.add_question(name, false, QueryType::A, QueryClass::IN);
     let dmsg = dmsg.build().expect("Bad DNS Query");
 

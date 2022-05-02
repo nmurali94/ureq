@@ -10,15 +10,10 @@ use crate::stream::Stream;
 
 use std::convert::{TryFrom, TryInto};
 
-/// Response instances are created as results of firing off requests.
-/// The `Response` is used to read response headers and decide what to do with the body.  Note that the socket connection is open and the body not read until [`into_reader()`](#method.into_reader)
+/// The Response is used to read response headers and decide what to
+/// do with the body.  Note that the socket connection is open and the
+/// body not read until [`into_reader()`](#method.into_reader)
 ///
-
-/*
-type StatusVec = arrayvec::ArrayVec<u8, 128>;
-type BufVec = arrayvec::ArrayVec<u8, 8192>;
-type CarryOver = arrayvec::ArrayVec<u8, 8192>;
-*/
 
 type StatusVec = Vec<u8>;
 type BufVec = Vec<u8>;
@@ -50,24 +45,24 @@ impl Status {
     pub fn to_str(self) -> &'static str {
         use Status::*;
         match self {
-            Success => "Ok",
-            BadRequest => "Bad Request",
-            NotFound => "Not Found",
-            InternalServerError => "Internal Server Error",
+            Success => "200 Ok",
+            BadRequest => "400 Bad Request",
+            NotFound => "404 Not Found",
+            InternalServerError => "500 Internal Server Error",
             Unsupported => "Unknown",
         }
     }
 }
 
 pub struct Response {
-    status_line: StatusVec,
+    status: Status,
     headers: Headers,
     reader: ComboReader,
 }
 
 impl fmt::Debug for Response {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let (_version, status) = self.get_status_line().unwrap();
+        let status = self.status();
         let text = status.to_str();
         let status = status as u16;
         write!(f, "Response[status: {}, status_text: {}", status, text,)?;
@@ -104,8 +99,8 @@ impl ResponseReader {
 }
 
 impl Response {
-    pub fn get_status_line(&self) -> Result<(&'static str, Status), Error> {
-        parse_status_line_from_header(&self.status_line)
+    pub fn status(&self) -> Status {
+        self.status
     }
 
     pub fn header(&self, name: &str) -> Option<&str> {
@@ -124,22 +119,17 @@ impl Response {
     /// 3. If no length header, the reader is until server stream end.
     ///
     pub fn into_reader(self) -> ResponseReader {
-        //
-        let (http_version, _) = self.get_status_line().unwrap();
-        let is_http10 = http_version.eq_ignore_ascii_case("HTTP/1.0");
         let is_close = self
             .header("connection")
             .map(|c| c.eq_ignore_ascii_case("close"))
             .unwrap_or(false);
 
-        let is_chunked = self
+        let use_chunked = self
             .header("transfer-encoding")
             .map(|enc| !enc.is_empty()) // whatever it says, do chunked
             .unwrap_or(false);
 
-        let use_chunked = !is_http10 && is_chunked;
-
-        let limit_bytes = if is_http10 || is_close {
+        let limit_bytes = if is_close {
             None
         } else {
             self.header("content-length")
@@ -161,9 +151,10 @@ impl Response {
         // HTTP/1.1 200 OK\r\n
         let (mut headers, carryover) = read_status_and_headers(&mut stream)?;
 
-        let i = memchr::memchr(b'\n', &headers)
+        let i = &headers.iter().position(|x| *x == b'\n')
             .ok_or_else(|| ErrorKind::BadStatus.msg("Missing Status Line"))?;
         let status_line: StatusVec = headers.drain(..i + 1).collect();
+        let (_, status) = parse_status_line_from_header(&status_line)?;
 
         let headers = Headers::try_from(headers)?;
 
@@ -173,7 +164,7 @@ impl Response {
         };
 
         Ok(Response {
-            status_line,
+            status,
             headers,
             reader,
         })
@@ -204,9 +195,9 @@ fn read_status_and_headers(reader: &mut Stream) -> io::Result<(BufVec, CarryOver
 
     if let Some(res) = ri.next() {
         let c = res?;
-        match memchr::memmem::find(&buffer[..c], b"\r\n\r\n") {
+        match &buffer[..c].windows(4).position(|win| win == b"\r\n\r\n") {
             Some(i) => {
-                let buf: BufVec = buffer[..i + 2].try_into().unwrap();
+                let buf = buffer[..i + 2].try_into().unwrap();
                 buffer.copy_within(i + 4..c, 0);
                 let carry = c - i - 4;
                 let carryover: CarryOver = buffer[..carry].try_into().unwrap();
@@ -220,5 +211,7 @@ fn read_status_and_headers(reader: &mut Stream) -> io::Result<(BufVec, CarryOver
             }
         }
     }
-    Ok((BufVec::new(), CarryOver::new()))
+    Err(io::Error::new(io::ErrorKind::UnexpectedEof,
+        "Failed to fetch HTTP headers in given buffer",
+    ))
 }

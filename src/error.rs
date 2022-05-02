@@ -1,17 +1,11 @@
-//use url::{ParseError, Url};
 use crate::url::{Error as ParseError};
 
 use std::error;
 use std::fmt::{self, Display};
 use std::io;
 
-use crate::Response;
-
 #[derive(Debug)]
 pub enum Error {
-    /// A response was successfully received but had status code >= 400.
-    /// Values are (status_code, Response).
-    Status(u16, Box<Response>),
     /// There was an error making the request or receiving the response.
     Transport(Transport),
     /// Url Error
@@ -30,9 +24,6 @@ pub struct Transport {
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::Status(status, _response) => {
-                write!(f, "status code {}", status)?;
-            }
             Error::Transport(err) => {
                 write!(f, "{}", err)?;
             }
@@ -98,7 +89,6 @@ impl Error {
     ///
     pub fn kind(&self) -> ErrorKind {
         match self {
-            Error::Status(_, _) => ErrorKind::HTTP,
             Error::Transport(Transport { kind: k, .. }) => *k,
             Error::ParseError(_) => ErrorKind::InvalidUrl,
         }
@@ -148,13 +138,6 @@ impl ErrorKind {
     }
 }
 
-impl From<Response> for Error {
-    fn from(resp: Response) -> Error {
-        let (_v, s) = resp.get_status_line().unwrap();
-        Error::Status(s as u16, Box::new(resp))
-    }
-}
-
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Error {
         ErrorKind::Io.new().src(err)
@@ -169,7 +152,8 @@ impl From<Transport> for Error {
 
 impl From<ParseError> for Error {
     fn from(err: ParseError) -> Self {
-        ErrorKind::InvalidUrl.msg("Failed to parse URL").src(err)
+        ErrorKind::InvalidUrl.msg("Failed to parse URL")
+            .src(err)
     }
 }
 

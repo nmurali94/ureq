@@ -46,7 +46,8 @@ impl Url {
         }
 
         let bs = s.as_bytes();
-        let si = memchr::memmem::find(bs, b"://").ok_or_else(|| UreqError::from(Error::Scheme))?;
+        let si = bs.windows(3).position(|window| window == b"://")
+            .ok_or_else(|| UreqError::from(Error::Scheme))?;
         let scheme = match &bs[..si] {
             b"http" => Ok(Scheme::Http),
             #[cfg(feature = "tls")]
@@ -55,9 +56,10 @@ impl Url {
         }?;
         let hi = si + 3;
 
-        let hj = memchr::memchr(b'/', &bs[hi..]).ok_or_else(|| UreqError::from(Error::Host))?;
+        let hj = &bs[hi..].iter().position(|x| *x == b'/')
+            .ok_or_else(|| UreqError::from(Error::Host))?;
         let hj = hi + hj;
-        let pk = memchr::memchr(b':', &bs[hi..hj]);
+        let pk = &bs[hi..hj].iter().position(|x| *x == b':');
         let v = match scheme {
             Scheme::Http => 80,
             #[cfg(feature = "tls")]
