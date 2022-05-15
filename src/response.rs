@@ -8,16 +8,12 @@ use crate::header::Headers;
 use crate::readers::*;
 use crate::stream::Stream;
 
-use std::convert::{TryFrom, TryInto};
+use std::convert::{TryFrom};
 
 /// The Response is used to read response headers and decide what to
 /// do with the body.  Note that the socket connection is open and the
 /// body not read until [`into_reader()`](#method.into_reader)
 ///
-
-type StatusVec = Vec<u8>;
-type BufVec = Vec<u8>;
-type CarryOver = Vec<u8>;
 
 #[derive(Clone, Copy)]
 pub enum Status {
@@ -149,17 +145,21 @@ impl Response {
     pub(crate) fn do_from_stream(mut stream: Stream) -> Result<Response, Error> {
         //
         // HTTP/1.1 200 OK\r\n
-        let (mut headers, carryover) = read_status_and_headers(&mut stream)?;
+        //let (mut headers, carryover) = read_status_and_headers(&mut stream)?;
+        let b = read_status_and_headers(&mut stream)?;
+
+        let headers = &b.buf[..b.head_len];
 
         let i = &headers.iter().position(|x| *x == b'\n')
             .ok_or_else(|| ErrorKind::BadStatus.msg("Missing Status Line"))?;
-        let status_line: StatusVec = headers.drain(..i + 1).collect();
-        let (_, status) = parse_status_line_from_header(&status_line)?;
+        let status_line = &headers[..i + 1];
+        let (_, status) = parse_status_line_from_header(status_line)?;
 
-        let headers = Headers::try_from(headers)?;
+        let headers = Headers::try_from(&headers[i+1..b.head_len])?;
+        //let carryover = b.buf[b.head_len..b.head_len+b.carry_len].try_into().unwrap();
 
         let reader = ComboReader {
-            co: carryover,
+            co: b,
             st: stream,
         };
 
@@ -189,7 +189,13 @@ fn parse_status_line_from_header(s: &[u8]) -> Result<(&'static str, Status), Err
     }
 }
 
-fn read_status_and_headers(reader: &mut Stream) -> io::Result<(BufVec, CarryOver)> {
+pub(crate) struct Buffer<const N: usize> {
+    pub(crate) buf: [u8; N],
+    pub(crate) head_len: usize,
+    pub(crate) carry_len: usize,
+}
+
+fn read_status_and_headers(reader: &mut Stream) -> io::Result<Buffer<16_384>> {
     let mut buffer = [0; 8192 * 2];
     let mut ri = ReadIterator::<Stream>::new(reader, &mut buffer);
 
@@ -197,11 +203,12 @@ fn read_status_and_headers(reader: &mut Stream) -> io::Result<(BufVec, CarryOver
         let c = res?;
         match &buffer[..c].windows(4).position(|win| win == b"\r\n\r\n") {
             Some(i) => {
-                let buf = buffer[..i + 2].try_into().unwrap();
-                buffer.copy_within(i + 4..c, 0);
-                let carry = c - i - 4;
-                let carryover: CarryOver = buffer[..carry].try_into().unwrap();
-                return Ok((buf, carryover));
+                let b = Buffer {
+                    buf: buffer,
+                    head_len: i+2,
+                    carry_len: c-(i+4),
+                };
+                return Ok(b);
             }
             None => {
                 return Err(io::Error::new(

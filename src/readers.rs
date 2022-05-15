@@ -1,7 +1,8 @@
 use crate::stream::Stream;
+use crate::response::Buffer;
 use std::io::{self, Read};
 
-type CarryOver = Vec<u8>;
+type CarryOver = Buffer<16_384>;
 
 pub(crate) struct ComboReader {
     pub co: CarryOver,
@@ -10,12 +11,13 @@ pub(crate) struct ComboReader {
 
 impl Read for ComboReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let c = self.co.as_slice().read(buf)?;
-        if c == 0 {
-            self.st.read(buf)
-        } else {
-            let _ = self.co.drain(..c);
+        if self.co.head_len < self.co.carry_len {
+            let mut b = &self.co.buf[self.co.head_len..self.co.head_len+self.co.carry_len];
+            let c = b.read(buf)?;
+            self.co.head_len += c;
             Ok(c)
+        } else {
+            self.st.read(buf)
         }
     }
 }

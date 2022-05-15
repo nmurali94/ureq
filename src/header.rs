@@ -25,19 +25,20 @@ impl Headers {
     }
 }
 
-impl TryFrom<Vec<u8>> for Headers {
+impl TryFrom<&[u8]> for Headers {
     type Error = Error;
-    fn try_from(mut v: Vec<u8>) -> Result<Self, Error> {
+    fn try_from(v: &[u8]) -> Result<Self, Error> {
         let mut map = Headers::new();
-        while let Some(len) = v.windows(2).position(|x| x == b"\r\n") {
+        let mut start = 0;
+        while let Some(len) = v[start..].windows(2).position(|x| x == b"\r\n") {
             if len > 1024 {
                 return Err(ErrorKind::BadHeader.msg("HTTP header size larger than supported"));
             }
-            let colon = &v[..len].iter().position(|x| *x == b':').ok_or_else(|| {
+            let colon = &v[start..start+len].iter().position(|x| *x == b':').ok_or_else(|| {
                 ErrorKind::BadHeader.msg("HTTP header must be a key-value separated by a colon")
             })?;
             let mut data = [0; 1024];
-            data[..len].copy_from_slice(&v[..len]);
+            data[..len].copy_from_slice(&v[start..start+len]);
 
             let meta = ((colon & 0xFFFF) << 16) | (len & 0xFFFF); 
             let h = Header {
@@ -45,7 +46,7 @@ impl TryFrom<Vec<u8>> for Headers {
                 data,
             };
             map.push(h);
-            let _ = v.drain(..len+2);
+            start += len + 2;
         }
         Ok(map)
     }
